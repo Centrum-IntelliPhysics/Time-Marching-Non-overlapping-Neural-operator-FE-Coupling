@@ -26,6 +26,7 @@ import pickle
 import scipy
 from matplotlib.ticker import ScalarFormatter
 from scipy.interpolate import Rbf, interp1d, griddata
+from Hyper_utils import plot_disp, plot_relative_error, createFolder, plot_loss4
 # %matplotlib inline
 
 # region neural net
@@ -54,7 +55,7 @@ def MLP(layers, activation=relu):
 # region model 
 # Define the model
 class PI_DeepONet:
-    def __init__(self, branch_layers, trunk_layers, **ela_model):
+    def __init__(self, branch_layers, trunk_layers,*test_data, **ela_model):
         # Network initialization and evaluation functions
         self.branch_init, self.branch_apply = MLP(branch_layers, activation=np.tanh)
         self.trunk_init, self.trunk_apply = MLP(trunk_layers, activation=np.tanh)
@@ -94,6 +95,9 @@ class PI_DeepONet:
         self.loss_bcs_log = []
         self.loss_res_log = []
         self.loss_bcs_strain_log = [] 
+        self.loss_test_log = []
+
+        self.test_data = test_data
 
     # region architecture 
     # Define DeepONet architecture
@@ -216,50 +220,8 @@ class PI_DeepONet:
         return res0, res1
 
 
-    # region strain 
-    # (infinitesimal)
-    '''def strain(self, params, u, v, x, y):
-        params_u, params_v = params
-        #u, v = u.reshape(-1,1), v.reshape(-1,1)
-        
-        #print(s_u.shape)
-        s_u_y = jax.jvp(lambda y: self.operator_net_u(params_u, u, x, y), (y,), (np.ones_like(y),))[1]
-        
-        s_u_x= jax.jvp(lambda x: self.operator_net_u(params_u, u, x, y), (x,), (np.ones_like(x),))[1]
 
-        s_v_y= jax.jvp(lambda y: self.operator_net_v(params_v, v, x, y), (y,), (np.ones_like(y),))[1]
-                       
-        s_v_x=  jax.jvp(lambda x: self.operator_net_v(params_v, v, x, y), (x,), (np.ones_like(x),))[1]
-
-        e_xx = s_u_x
-        e_yy = s_v_y
-        e_xy = (s_u_y + s_v_x)/2
-
-        return e_xx, e_yy, e_xy'''
-    # large deformation
-    '''def strain(self, params, u, v, x, y):
-        params_u, params_v = params
-
-        F11 = self.F11(params_u, u, x, y)
-        F12 = self.F12(params_u, u, x, y)
-        F21 = self.F21(params_v, v, x, y)
-        F22 = self.F22(params_v, v, x, y)
-
-        # right Cauchy-Green deformation tensor C = F^T * F
-        C11 = F11**2 + F21**2
-        C22 = F12**2 + F22**2
-        C12 = F11 * F12 + F21 * F22  
-        #C21 = C12  
-
-        I = np.eye(2)
-
-        # Green-Lagrange strain tensor E = 0.5 * (C - I)
-        E11 = 0.5 * (C11 - 1)
-        E22 = 0.5 * (C22 - 1)
-        E12 = 0.5 * (C12 - 0)
-
-        return E11, E22, E12'''
-
+    #region stress
     def stress(self, params, u, v, x, y):
         params_u, params_v = params
 
@@ -337,6 +299,19 @@ class PI_DeepONet:
        
         return 1e3 * loss
 
+    # Define test loss
+    @partial(jit, static_argnums=(0,))
+    def loss_test(self, params):
+        params_u, params_v = params
+        u_test, v_test, h_test, _, _, _, U1_test, V1_test = self.test_data
+        y_test = h_test
+        print('y_test shape in test loss', y_test.shape)
+        s_u_pred = self.operator_net_u(params_u, u_test, y_test[:,0], y_test[:,1])
+        s_v_pred = self.operator_net_v(params_v, v_test, y_test[:,0], y_test[:,1])
+        
+        print('UV_pred shape in test loss', U1_test.shape, 's_u_pred shape', s_u_pred.shape)
+        loss = np.mean((U1_test- s_u_pred)**2) + np.mean((V1_test- s_v_pred)**2)
+        return loss
 
 
     # Define total loss
@@ -378,18 +353,24 @@ class PI_DeepONet:
                 loss_value = self.loss(params, bcs_batch, res_batch)
                 loss_bcs_value = self.loss_bcs(params, bcs_batch)
                 loss_res_value = self.loss_res(params, res_batch)
-                loss_bcs_strain_value = self.loss_bcs_strain(params, bcs_batch)
+                loss_bcs_value_strain = self.loss_bcs_strain(params, bcs_batch)
+                loss_test_value = self.loss_test(params)
 
                 # Store losses
                 self.loss_log.append(loss_value)
                 self.loss_bcs_log.append(loss_bcs_value)
                 self.loss_res_log.append(loss_res_value)
-                self.loss_bcs_strain_log.append(loss_bcs_strain_value)
+                self.loss_bcs_strain_log.append(loss_bcs_value_strain)
+                self.loss_test_log.append(loss_test_value)
+
 
                 # Print losses
-                pbar.set_postfix({'bcs' : loss_bcs_value,
+                pbar.set_postfix({#'Loss': loss_value,
+                                  'bcs' : loss_bcs_value,
                                   'res': loss_res_value,
-                                  'bcs_strain': loss_bcs_strain_value})
+                                  'strain': loss_bcs_value_strain,
+                                  'test': loss_test_value
+                                  })
 
     # Evaluates predictions at test points
     @partial(jit, static_argnums=(0,))
@@ -746,7 +727,6 @@ def generate_one_training_data(key, P, Q, N):
 
 # Geneate training data corresponding to N input sample
 def generate_training_data(key, N, P, Q):
-    config.update("jax_enable_x64", True)
     u_train, v_train,h_train, s_u_train, s_v_train, s_e_xx_train, s_e_yy_train,\
                 s_e_xy_train, u_r_train, v_r_train, h_r_train, s_r_train = generate_one_training_data(key, P, Q ,N)
     #print(u_r_train.shape)  ## vmap return N * u_r_train different  (N, P, m)
@@ -765,21 +745,65 @@ def generate_training_data(key, N, P, Q):
     print('h_r_train.shape1=', h_r_train[0,:5,:5])
     s_r_train = np.float32(s_r_train.reshape(N ,-1))
 
-    config.update("jax_enable_x64", False)
     return     u_train, v_train,h_train, s_u_train, s_v_train, s_e_xx_train, s_e_yy_train, \
                 s_e_xy_train, u_r_train, v_r_train, h_r_train, s_r_train
 
 
+# region test data 
+def generate_one_test_data(key, P, Q, N):
 
+    os.chdir(os.path.join(originalDir, './'+ 'FE_full_square_hyper_all_dataset_N_200_one_tractions_square_CG2_dense_u_v_top_resort_real_sigma_1_test5' + '/'))
+    u_c = npr.loadtxt('u_c.txt').T
+    v_c = npr.loadtxt('v_c.txt').T
+    e_xx_c = npr.loadtxt('s_xx_c.txt').T
+    e_yy_c = npr.loadtxt('s_yy_c.txt').T
+    e_xy_c = npr.loadtxt('s_xy_c.txt').T
+    X1 = npr.loadtxt('X1.txt')
+    Y1 = npr.loadtxt('Y1.txt')
+    U1_test = npr.loadtxt('U1.txt').T
+    V1_test = npr.loadtxt('V1.txt').T
+
+    os.chdir(origin_real)
+
+
+    # traning data for boundary conditions
+    h_test = np.hstack([X1.reshape(-1,1), Y1.reshape(-1,1)])
+
+    s_e_xx_test = e_xx_c.reshape(-1,1)
+    s_e_yy_test = e_yy_c.reshape(-1,1)
+    s_e_xy_test = e_xy_c.reshape(-1,1)
+    
+    u_test = np.hstack([u_c.reshape(-1,m), v_c.reshape(-1,m)])
+    v_test = np.hstack([u_c.reshape(-1,m), v_c.reshape(-1,m)])
+    return u_test, v_test, h_test, s_e_xx_test, s_e_yy_test, s_e_xy_test, U1_test, V1_test
+
+
+# Geneate test data corresponding to N input sample
+def generate_test_data(key, N, P, Q):
+
+    u_test, v_test, h_test, s_e_xx_test, s_e_yy_test, s_e_xy_test, U1_test, V1_test = generate_one_test_data(key, P, Q ,N)
+    
+    u_test = np.float32(u_test.reshape(N ,-1))  #turn to be (N,m)
+    v_test = np.float32(v_test.reshape(N ,-1)) 
+    s_e_xx_test = np.float32(s_e_xx_test.reshape(N,-1))
+    s_e_yy_test = np.float32(s_e_yy_test.reshape(N,-1))
+    s_e_xy_test = np.float32(s_e_xy_test.reshape(N,-1))
+    U1_test = np.float32(U1_test.reshape(N ,-1))
+    V1_test = np.float32(V1_test.reshape(N ,-1))
+    
+
+    return u_test, v_test, h_test, s_e_xx_test, s_e_yy_test, s_e_xy_test, U1_test, V1_test
 
 
 
 # region main 
 if __name__ == "__main__":
+    jax.config.update("jax_enable_x64", False)
+
     originalDir ='/nfshdd/21040463r/FEM_DeepONet_non_overlapping_coupling/non_overlapping_hyper_clean'
     os.chdir(os.path.join(originalDir))
 
-    foldername = 'prepare_DeepONet_hyper_elastic_200w_uv_bcs_strain_one_traction_N_800_batch_100_uv_top_resort_real_sigma'  
+    foldername = 'prepare_DeepONet_hyper_elastic_200w_uv_bcs_strain_one_traction_N_800_batch_100_uv_top_resort_real_sigma_test5'  
     createFolder(foldername)
     os.chdir(os.path.join(originalDir, './'+ foldername + '/'))
     origin_real  = os.path.join(originalDir, './'+ foldername + '/')
@@ -814,17 +838,21 @@ if __name__ == "__main__":
     u_bcs_train, v_bcs_train, h_bcs_train, s_u_train, s_v_train, s_e_xx_train, s_e_yy_train, s_e_xy_train, u_res_train, v_res_train, h_res_train, s_res_train\
             = generate_training_data(key, N, P_train, Q_train)
    
+    u_test, v_test, h_test, s_e_xx_test, s_e_yy_test, s_e_xy_test, U1_test, V1_test = generate_test_data(key, 5, P_train, Q_train)
+        
+    test_data = u_test, v_test, h_test, s_e_xx_test, s_e_yy_test, s_e_xy_test, U1_test, V1_test 
+
     # Initialize model
     branch_layers = [2*m, 100, 100, 100, 100, 800]
     trunk_layers =  [d, 100, 100, 100, 100, 800]
-    model = PI_DeepONet(branch_layers, trunk_layers, **ela_model)
+    model = PI_DeepONet(branch_layers, trunk_layers, *test_data, **ela_model)
     
     # Create data set
     batch_size =  100 #100 
-    bcs_dataset = DataGenerator(u_bcs_train, v_bcs_train, h_bcs_train, s_u_train, s_v_train, s_e_xx_train, s_e_yy_train, s_e_xy_train, batch_size )
+    bcs_dataset = DataGenerator(u_bcs_train, v_bcs_train, h_bcs_train, s_u_train, s_v_train, s_e_xx_train, s_e_yy_train, s_e_xy_train, batch_size)
     
     res_dataset = DataGenerator(u_res_train, v_res_train, h_res_train, s_res_train, s_res_train, s_res_train, s_res_train, s_res_train, batch_size)
-    
+
     
     # Train
     model.train(bcs_dataset, res_dataset, nIter=2000000)
@@ -838,20 +866,21 @@ if __name__ == "__main__":
     # region prediction 
     # Predict
 
-    with open('DeepONet_DR.pkl', 'rb') as f:
-        params = pickle.load(f)
+    '''with open('DeepONet_DR.pkl', 'rb') as f:
+        params = pickle.load(f)'''
 
-    '''params = model.get_params(model.opt_state)
+    params = model.get_params(model.opt_state)
     with open('DeepONet_DR.pkl', 'wb') as f:
         pickle.dump(params, f)
 
 
     #Plot for loss function
-    plot_loss(model.loss_bcs_log, model.loss_res_log, model.loss_bcs_strain_log)
-    import numpy as npr # jnp donesn't have loadtxt
-    npr.savetxt('loss_bcs_log.txt', model.loss_bcs_log)
-    npr.savetxt('loss_res_log.txt', model.loss_res_log)
-    npr.savetxt('loss_bcs_strain_log.txt', model.loss_bcs_strain_log)'''
+    npr.savetxt('loss_bcs_log.txt', npr.array(model.loss_bcs_log))
+    npr.savetxt('loss_res_log.txt', npr.array(model.loss_res_log))
+    npr.savetxt('loss_bcs_strain_log.txt', npr.array(model.loss_bcs_strain_log))
+    npr.savetxt('loss_test_log.txt', npr.array(model.loss_test_log))
+    plot_loss4(model.loss_bcs_log, model.loss_res_log, model.loss_bcs_strain_log, model.loss_test_log)
+
 
     ts = 4 
     import numpy as npr
