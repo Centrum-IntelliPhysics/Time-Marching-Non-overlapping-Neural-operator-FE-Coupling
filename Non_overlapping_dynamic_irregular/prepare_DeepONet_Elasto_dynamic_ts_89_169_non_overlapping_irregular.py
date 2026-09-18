@@ -711,132 +711,128 @@ def generate_training_data(key, N, P, Q):
                 u_r_train, v_r_train, h_r_train, s_r_train
     
 
-
-# region save path 
-originalDir = '/nfshdd/21040463r/FEM_DeepONet_non_overlapping_coupling/non_overlapping_figures/elasto_dynamic_irregular'
-os.chdir(os.path.join(originalDir))
-foldername = 'prepare_DeepONet_disk_dynamic_square_disk_ts_89_169_200w_test5'
-createFolder(foldername)
-os.chdir(os.path.join(originalDir, './' + foldername + '/'))
-originalDir_real = os.path.join(originalDir, './' + foldername + '/')
-
-os.chdir(os.path.join(originalDir, './' + 'dataload_from_full_square_disk_dataset_89_169_epsilon_CG2_dense' + '/'))
-# GRF length scale
-length_scale = [1, 0.4] #0.2 for symetric RBF big length_scale
-import numpy as npr 
-# Resolution of the solution
-center = (0.0, 0.5, 0.0)  # Center of the circle
-radius = 0.3             # Radius of the circle
-X1 = npr.loadtxt('X1.txt')
-Y1 = npr.loadtxt('Y1.txt')
-x_c = npr.loadtxt('x_c.txt')
-y_c = npr.loadtxt('y_c.txt')
-# resort the sequence of the index (easy for the following application in coupling)
-N_num_ptx = X1.shape[0]
-
-#nx1 = index_up.shape[0]
-#nx2 = index_up.shape[0]
-
-m_s = N_num_ptx # number of sensors in the square
-d = 2
-N = 8000 # number of input samples
-m = x_c.shape[0] # number of input sensors
-P_train = m # number of output sensors, 100 for each side
-Q_train = 400 #400  # number of collocation points for each input sample
-
-print('ms, m', m_s, m)
-#nemark method
-beta = 1
-# Time-stepping parameters
-T       = 4.0
-Nsteps  = 1e4
-dt =  T/Nsteps
-
-# test data generation 
-#real test   
-os.chdir(os.path.join(originalDir, './' + 'L_shape_ground_truth' + '/'))
-import numpy as npr # jnp donesn't have loadtxt
-trans = 0.3
-X1_real = npr.loadtxt('X1.txt') 
-Y1_real = npr.loadtxt('Y1.txt') 
-print('X1_real shape', X1_real.shape)
-
-U1 = npr.loadtxt('U1 ts = 131.txt')
-V1 = npr.loadtxt('V1 ts = 131.txt')
-U1_new = npr.loadtxt('U1 ts = 132.txt')
-V1_new = npr.loadtxt('V1 ts = 132.txt')
-vx = npr.loadtxt('vx ts = 131.txt')/100
-vy = npr.loadtxt('vy ts = 131.txt')/100
-
-e_xx_new = npr.loadtxt('epsilon_x1 ts = 132.txt')
-e_yy_new = npr.loadtxt('epsilon_y1 ts = 132.txt')
-e_xy_new = npr.loadtxt('epsilon_xy1 ts = 132.txt')
-
-index_c = np.concatenate([
-np.where((Y1_real == y_val) & (X1_real == x_val))[0]
-for x_val, y_val in zip(x_c, y_c)
-])  
-
-u_c = U1_new[index_c]
-v_c = V1_new[index_c]
-print('u_r shape', u_c.shape)
-
-os.chdir(os.path.join(originalDir, './' + 'dataload_from_full_square_disk_dataset_89_169_epsilon_CG2_dense_test5' + '/'))
-U1_test5 = npr.loadtxt('U1.txt') 
-V1_test5 = npr.loadtxt('V1.txt') 
-vx_test5 = npr.loadtxt('vx.txt')
-vy_test5 = npr.loadtxt('vy.txt')
-e_xx_c_test5 = npr.loadtxt('e_xx_c.txt')
-e_yy_c_test5 = npr.loadtxt('e_yy_c.txt')
-e_xy_c_test5 = npr.loadtxt('e_xy_c.txt')
-u_c_test5 = npr.loadtxt('u_c.txt')
-v_c_test5 = npr.loadtxt('v_c.txt')
-X1_test5 = npr.loadtxt('X1.txt') 
-Y1_test5 = npr.loadtxt('Y1.txt')
-x_c_test5 = npr.loadtxt('x_c.txt')
-y_c_test5 = npr.loadtxt('y_c.txt')
-
-U1_0_old, U1_0_new, V1_0_old, V1_0_new = U1_test5[0,:], U1_test5[1,:], V1_test5[0,:], V1_test5[1,:]
-U1_1_old, U1_1_new, V1_1_old, V1_1_new = U1_test5[12,:], U1_test5[13,:], V1_test5[12,:], V1_test5[13,:]
-U1_2_old, U1_2_new, V1_2_old, V1_2_new = U1_test5[24,:], U1_test5[25,:], V1_test5[24,:], V1_test5[25,:]
-U1_3_old, U1_3_new, V1_3_old, V1_3_new = U1_test5[36,:], U1_test5[37,:], V1_test5[36,:], V1_test5[37,:]
-U1_4_old, U1_4_new, V1_4_old, V1_4_new = U1_test5[48,:], U1_test5[49,:], V1_test5[48,:], V1_test5[49,:]
-
-vx_0_old, vy_0_old, vx_1_old, vy_1_old, vx_2_old, vy_2_old, vx_3_old, vy_3_old, vx_4_old, vy_4_old = \
-    vx_test5[0,:], vy_test5[0,:], vx_test5[12,:], vy_test5[12,:], vx_test5[24,:], vy_test5[24,:], \
-    vx_test5[36,:], vy_test5[36,:], vx_test5[48,:], vy_test5[48,:]
-
-u_c_0_old, v_c_0_old, u_c_1_old, v_c_1_old, u_c_2_old, v_c_2_old, u_c_3_old, v_c_3_old, u_c_4_old, v_c_4_old = \
-    u_c_test5[0,:], v_c_test5[0,:], u_c_test5[12,:], v_c_test5[12,:], u_c_test5[24,:], v_c_test5[24,:], \
-    u_c_test5[36,:], v_c_test5[36,:], u_c_test5[48,:], v_c_test5[48,:]
-
-U1_0_test = np.hstack([U1_0_old.reshape(1, -1), V1_0_old.reshape(1, -1), vx_0_old.reshape(1, -1), vy_0_old.reshape(1, -1), u_c_0_old.reshape(1, -1), v_c_0_old.reshape(1, -1)])
-U1_1_test = np.hstack([U1_1_old.reshape(1, -1), V1_1_old.reshape(1, -1), vx_1_old.reshape(1, -1), vy_1_old.reshape(1, -1), u_c_1_old.reshape(1, -1), v_c_1_old.reshape(1, -1)])
-U1_2_test = np.hstack([U1_2_old.reshape(1, -1), V1_2_old.reshape(1, -1), vx_2_old.reshape(1, -1), vy_2_old.reshape(1, -1), u_c_2_old.reshape(1, -1), v_c_2_old.reshape(1, -1)])
-U1_3_test = np.hstack([U1_3_old.reshape(1, -1), V1_3_old.reshape(1, -1), vx_3_old.reshape(1, -1), vy_3_old.reshape(1, -1), u_c_3_old.reshape(1, -1), v_c_3_old.reshape(1, -1)])
-U1_4_test = np.hstack([U1_4_old.reshape(1, -1), V1_4_old.reshape(1, -1), vx_4_old.reshape(1, -1), vy_4_old.reshape(1, -1), u_c_4_old.reshape(1, -1), v_c_4_old.reshape(1, -1)])
-Y_test = np.tile(np.hstack([X1.real.reshape(1,-1), Y1.real.reshape(1,-1)]), (5, 1))
-
-U1_0_pred = np.hstack([U1_0_new.reshape(1, -1), V1_0_new.reshape(1, -1)])
-U1_1_pred = np.hstack([U1_1_new.reshape(1, -1), V1_1_new.reshape(1, -1)])
-U1_2_pred = np.hstack([U1_2_new.reshape(1, -1), V1_2_new.reshape(1, -1)])
-U1_3_pred = np.hstack([U1_3_new.reshape(1, -1), V1_3_new.reshape(1, -1)])
-U1_4_pred = np.hstack([U1_4_new.reshape(1, -1), V1_4_new.reshape(1, -1)])
-
-U1_pred5 = np.vstack([U1_0_pred, U1_1_pred, U1_2_pred, U1_3_pred, U1_4_pred])
-U1_test5 = np.hstack([Y_test, np.vstack([U1_0_test, U1_1_test, U1_2_test, U1_3_test, U1_4_test])])
-V1_test5 = U1_test5.copy()
-test_data = U1_test5, V1_test5, U1_pred5
-os.chdir(originalDir_real)
-
-npr.savetxt('X1_NO.txt', X1_real)
-npr.savetxt('Y1_NO.txt', Y1_real)
-npr.savetxt('x_c_NO.txt', x_c)
-npr.savetxt('y_c_NO.txt', y_c)
-# region main 
-# let the out disk data be zero
-
 if __name__ == "__main__":
+    # region save path 
+    originalDir = '/nfshdd/21040463r/FEM_DeepONet_non_overlapping_coupling/non_overlapping_figures/elasto_dynamic_irregular'
+    os.chdir(os.path.join(originalDir))
+    foldername = 'prepare_DeepONet_disk_dynamic_square_disk_ts_89_169_200w_test5'
+    createFolder(foldername)
+    os.chdir(os.path.join(originalDir, './' + foldername + '/'))
+    originalDir_real = os.path.join(originalDir, './' + foldername + '/')
+
+    os.chdir(os.path.join(originalDir, './' + 'dataload_from_full_square_disk_dataset_89_169_epsilon_CG2_dense' + '/'))
+    # GRF length scale
+    length_scale = [1, 0.4] #0.2 for symetric RBF big length_scale
+    import numpy as npr 
+    # Resolution of the solution
+    center = (0.0, 0.5, 0.0)  # Center of the circle
+    radius = 0.3             # Radius of the circle
+    X1 = npr.loadtxt('X1.txt')
+    Y1 = npr.loadtxt('Y1.txt')
+    x_c = npr.loadtxt('x_c.txt')
+    y_c = npr.loadtxt('y_c.txt')
+    # resort the sequence of the index (easy for the following application in coupling)
+    N_num_ptx = X1.shape[0]
+
+    m_s = N_num_ptx # number of sensors in the square
+    d = 2
+    N = 8000 # number of input samples
+    m = x_c.shape[0] # number of input sensors
+    P_train = m # number of output sensors, 100 for each side
+    Q_train = 400 #400  # number of collocation points for each input sample
+
+    #nemark method
+    beta = 1
+    # Time-stepping parameters
+    T       = 4.0
+    Nsteps  = 1e4
+    dt =  T/Nsteps
+
+    # test data generation 
+    #real test   
+    os.chdir(os.path.join(originalDir, './' + 'L_shape_ground_truth' + '/'))
+    import numpy as npr # jnp donesn't have loadtxt
+    trans = 0.3
+    X1_real = npr.loadtxt('X1.txt') 
+    Y1_real = npr.loadtxt('Y1.txt') 
+    print('X1_real shape', X1_real.shape)
+
+    U1 = npr.loadtxt('U1 ts = 131.txt')
+    V1 = npr.loadtxt('V1 ts = 131.txt')
+    U1_new = npr.loadtxt('U1 ts = 132.txt')
+    V1_new = npr.loadtxt('V1 ts = 132.txt')
+    vx = npr.loadtxt('vx ts = 131.txt')/100
+    vy = npr.loadtxt('vy ts = 131.txt')/100
+
+    e_xx_new = npr.loadtxt('epsilon_x1 ts = 132.txt')
+    e_yy_new = npr.loadtxt('epsilon_y1 ts = 132.txt')
+    e_xy_new = npr.loadtxt('epsilon_xy1 ts = 132.txt')
+
+    index_c = np.concatenate([
+    np.where((Y1_real == y_val) & (X1_real == x_val))[0]
+    for x_val, y_val in zip(x_c, y_c)
+    ])  
+
+    u_c = U1_new[index_c]
+    v_c = V1_new[index_c]
+    print('u_r shape', u_c.shape)
+
+    os.chdir(os.path.join(originalDir, './' + 'dataload_from_full_square_disk_dataset_89_169_epsilon_CG2_dense_test5' + '/'))
+    U1_test5 = npr.loadtxt('U1.txt') 
+    V1_test5 = npr.loadtxt('V1.txt') 
+    vx_test5 = npr.loadtxt('vx.txt')
+    vy_test5 = npr.loadtxt('vy.txt')
+    e_xx_c_test5 = npr.loadtxt('e_xx_c.txt')
+    e_yy_c_test5 = npr.loadtxt('e_yy_c.txt')
+    e_xy_c_test5 = npr.loadtxt('e_xy_c.txt')
+    u_c_test5 = npr.loadtxt('u_c.txt')
+    v_c_test5 = npr.loadtxt('v_c.txt')
+    X1_test5 = npr.loadtxt('X1.txt') 
+    Y1_test5 = npr.loadtxt('Y1.txt')
+    x_c_test5 = npr.loadtxt('x_c.txt')
+    y_c_test5 = npr.loadtxt('y_c.txt')
+
+    U1_0_old, U1_0_new, V1_0_old, V1_0_new = U1_test5[0,:], U1_test5[1,:], V1_test5[0,:], V1_test5[1,:]
+    U1_1_old, U1_1_new, V1_1_old, V1_1_new = U1_test5[12,:], U1_test5[13,:], V1_test5[12,:], V1_test5[13,:]
+    U1_2_old, U1_2_new, V1_2_old, V1_2_new = U1_test5[24,:], U1_test5[25,:], V1_test5[24,:], V1_test5[25,:]
+    U1_3_old, U1_3_new, V1_3_old, V1_3_new = U1_test5[36,:], U1_test5[37,:], V1_test5[36,:], V1_test5[37,:]
+    U1_4_old, U1_4_new, V1_4_old, V1_4_new = U1_test5[48,:], U1_test5[49,:], V1_test5[48,:], V1_test5[49,:]
+
+    vx_0_old, vy_0_old, vx_1_old, vy_1_old, vx_2_old, vy_2_old, vx_3_old, vy_3_old, vx_4_old, vy_4_old = \
+        vx_test5[0,:], vy_test5[0,:], vx_test5[12,:], vy_test5[12,:], vx_test5[24,:], vy_test5[24,:], \
+        vx_test5[36,:], vy_test5[36,:], vx_test5[48,:], vy_test5[48,:]
+
+    u_c_0_old, v_c_0_old, u_c_1_old, v_c_1_old, u_c_2_old, v_c_2_old, u_c_3_old, v_c_3_old, u_c_4_old, v_c_4_old = \
+        u_c_test5[0,:], v_c_test5[0,:], u_c_test5[12,:], v_c_test5[12,:], u_c_test5[24,:], v_c_test5[24,:], \
+        u_c_test5[36,:], v_c_test5[36,:], u_c_test5[48,:], v_c_test5[48,:]
+
+    U1_0_test = np.hstack([U1_0_old.reshape(1, -1), V1_0_old.reshape(1, -1), vx_0_old.reshape(1, -1), vy_0_old.reshape(1, -1), u_c_0_old.reshape(1, -1), v_c_0_old.reshape(1, -1)])
+    U1_1_test = np.hstack([U1_1_old.reshape(1, -1), V1_1_old.reshape(1, -1), vx_1_old.reshape(1, -1), vy_1_old.reshape(1, -1), u_c_1_old.reshape(1, -1), v_c_1_old.reshape(1, -1)])
+    U1_2_test = np.hstack([U1_2_old.reshape(1, -1), V1_2_old.reshape(1, -1), vx_2_old.reshape(1, -1), vy_2_old.reshape(1, -1), u_c_2_old.reshape(1, -1), v_c_2_old.reshape(1, -1)])
+    U1_3_test = np.hstack([U1_3_old.reshape(1, -1), V1_3_old.reshape(1, -1), vx_3_old.reshape(1, -1), vy_3_old.reshape(1, -1), u_c_3_old.reshape(1, -1), v_c_3_old.reshape(1, -1)])
+    U1_4_test = np.hstack([U1_4_old.reshape(1, -1), V1_4_old.reshape(1, -1), vx_4_old.reshape(1, -1), vy_4_old.reshape(1, -1), u_c_4_old.reshape(1, -1), v_c_4_old.reshape(1, -1)])
+    Y_test = np.tile(np.hstack([X1.real.reshape(1,-1), Y1.real.reshape(1,-1)]), (5, 1))
+
+    U1_0_pred = np.hstack([U1_0_new.reshape(1, -1), V1_0_new.reshape(1, -1)])
+    U1_1_pred = np.hstack([U1_1_new.reshape(1, -1), V1_1_new.reshape(1, -1)])
+    U1_2_pred = np.hstack([U1_2_new.reshape(1, -1), V1_2_new.reshape(1, -1)])
+    U1_3_pred = np.hstack([U1_3_new.reshape(1, -1), V1_3_new.reshape(1, -1)])
+    U1_4_pred = np.hstack([U1_4_new.reshape(1, -1), V1_4_new.reshape(1, -1)])
+
+    U1_pred5 = np.vstack([U1_0_pred, U1_1_pred, U1_2_pred, U1_3_pred, U1_4_pred])
+    U1_test5 = np.hstack([Y_test, np.vstack([U1_0_test, U1_1_test, U1_2_test, U1_3_test, U1_4_test])])
+    V1_test5 = U1_test5.copy()
+    test_data = U1_test5, V1_test5, U1_pred5
+    os.chdir(originalDir_real)
+
+    npr.savetxt('X1_NO.txt', X1_real)
+    npr.savetxt('Y1_NO.txt', Y1_real)
+    npr.savetxt('x_c_NO.txt', x_c)
+    npr.savetxt('y_c_NO.txt', y_c)
+    # region main 
+    # let the out disk data be zero
+
+
     
     # the coefficient means a lot? 
     ### define the elastic model 

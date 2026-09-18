@@ -24,7 +24,7 @@ import logging
 from matplotlib.ticker import ScalarFormatter
 import time
 import pickle
-from dynamic_utils import plot_mesh, plot_disp, plot_s, plot_relative_error, createFolder, plot_boundary, plot_disp_real
+from dynamic_utils import plot_mesh, plot_disp, createFolder, plot_boundary, plot_disp_real
 from scipy.spatial import KDTree
 import time 
 from dolfinx.io import VTKFile
@@ -34,11 +34,11 @@ from dolfinx.io import VTKFile
 ##########################################
 
 #region Save path       
-originalDir = "/nfshdd/21040463r/FEM_DeepONet_non_overlapping_coupling/non_overlapping_figures/elasto_dynamic_irregular" #os.getcwd()
+originalDir = os.path.dirname(os.path.abspath(__file__))
 print('curent working directory:', originalDir)
 os.chdir(os.path.join(originalDir))
 
-foldername = 'FE_NO_elasto_dynamic_L_shape_90_169_real_1e_5_vtk'  
+foldername = 'FE_NO_elasto_dynamic_L_shape_90_169'  
 createFolder(foldername )
 os.chdir(os.path.join(originalDir, './'+ foldername + '/')) 
 
@@ -175,28 +175,12 @@ p = fem.Function(V)
 
 
 #region Exterior loadings  
-### not use in this code ###
-def pressure_expression(t):
-    if t <= cutoff_Tc:
-        return p0 * t / cutoff_Tc
-    else:
-        return p0
-
-def update_pressure(t):
-    p_array = p.vector.getArray()
-    p_array_x = p_array.reshape(-1,2)[:,0]
-    p_array_y = p_array.reshape(-1,2)[:,1]
-    for i in range(p_array_x.size):
-        p_array_x[i] = 0.
-    for i in range(p_array_y.size):
-        p_array_y[i] = pressure_expression(t)    
-    p_array_new = np.hstack([p_array_x.reshape(-1,1),p_array_y.reshape(-1,1)])
-    #print(p_array_new.shape)
-    p.vector.setArray(p_array_new.flatten())
-
 # top displacement 
 def top_disp(t):
     return 0.01 * t
+
+
+
 
 # region Measure dss
 # Create mesh function over the cell facets
@@ -217,7 +201,6 @@ facet_indices = ft.indices
 # Define a color map for the tags
 colors = {3: 'red'}  # Assign colors for each tag (1, 2, 3)
 ### Attention fdim = 1, tdim = 2 ####
-#plot_boundary(mesh, facet_values, facet_indices, colors, 'top_boundary', fdim)
 
 
 
@@ -574,14 +557,14 @@ for tag in tags_list:
 
 coor_out_test = np.hstack(coor_out_list)
 
-# 获取唯一值和每个值在唯一值数组中的索引
+# Get the unique values and the index of each value in the unique-value array
 unique_vals, first_indices, counts = np.unique(
     coor_out_test, 
     return_index=True, 
     return_counts=True
 )
 
-# 标记哪些值是重复的
+# Mark which values are duplicates
 duplicate_indices = first_indices[counts > 1] 
 # The boundary of irregular shape 
 nx_c_104 = (bc_list[0][:,0] + 0.4)/(0.1)
@@ -725,7 +708,7 @@ for ts in trange(170):
 
             '''traction_term = fem.form(ufl.dot(Traction, u_) * ds(103))
             integral_value = fem.assemble_scalar(traction_term)
-            print(f"在给定 u_ 下的边界积分值: {integral_value}")'''
+            print(f"Boundary integral value for the given u_: {integral_value}")'''
 
             a_form3 = fem.form(LL3)
             L_form3 = fem.form(RR3)
@@ -999,37 +982,37 @@ for ts in trange(170):
 
             if  error_list[-1] < 1e-5:
 
-                ''''if ts >= ts_end - 2 and ts < ts_end:
+                if ts >= ts_end - 2 and ts < ts_end:
                     plot_disp(X, Y, u.x.array.reshape(-1,3)[:,0],'U_x_FE t=' + str(ts) + ' iter = ' + str(iter), 'n = ' + str(ts))
                     plot_disp(X, Y, u.x.array.reshape(-1,3)[:,1],'U_y_FE t=' + str(ts) + ' iter = ' + str(iter), 'n = ' + str(ts))
                     plot_disp(X1, Y1, U_1, 'U_x_FE-FE t=' + str(ts) + ' iter = ' + str(iter), 'n = ' + str(ts))
-                    plot_disp(X1, Y1, V_1, 'U_y_FE-FE t=' + str(ts) + ' iter = ' + str(iter), 'n = ' + str(ts))'''
+                    plot_disp(X1, Y1, V_1, 'U_y_FE-FE t=' + str(ts) + ' iter = ' + str(iter), 'n = ' + str(ts))
 
-                if ts >= ts_end:
-                    '''plot_disp(X, Y, u.x.array.reshape(-1,3)[:,0],'U_x_FE t=' + str(ts) + ' iter = ' + str(iter), 'n = ' + str(ts))
+                if ts == ts_end:
+                    plot_disp(X, Y, u.x.array.reshape(-1,3)[:,0],'U_x_FE t=' + str(ts) + ' iter = ' + str(iter), 'n = ' + str(ts))
                     plot_disp(X, Y, u.x.array.reshape(-1,3)[:,1],'U_y_FE t=' + str(ts) + ' iter = ' + str(iter), 'n = ' + str(ts))
                     plot_disp_real(X1, Y1, s_u_pred,'U_x_NN t=' + str(ts) + ' iter = ' + str(iter), 'n = ' + str(ts))
                     plot_disp_real(X1, Y1, s_v_pred,'U_y_NN t=' + str(ts) + ' iter = ' + str(iter), 'n = ' + str(ts))
                     plot_disp(X1, Y1, s_e_xx_pred_tot,'strain_x_NN t=' + str(ts) + ' iter = ' + str(iter), rf'$\epsilon_{{xx,\mathrm{{FE-NO}},\Omega_{{II}}}}^{{{ts},{iter}}}$')
-                    plot_disp(X1, Y1, s_e_yy_pred_tot,'strain_y_NN t=' + str(ts) + ' iter = ' + str(iter), rf'$\epsilon_{{yy,\mathrm{{FE-NO}},\Omega_{{II}}}}^{{{ts},{iter}}}$')'''
-                    #plot_disp(X1, Y1, s_e_xy_pred_tot,'strain_xy_NN t=' + str(ts) + ' iter = ' + str(iter), rf'$\epsilon_{{xy,\mathrm{{FE-NO}},\Omega_{{II}}}}^{{{ts},{iter}}}$')
+                    plot_disp(X1, Y1, s_e_yy_pred_tot,'strain_y_NN t=' + str(ts) + ' iter = ' + str(iter), rf'$\epsilon_{{yy,\mathrm{{FE-NO}},\Omega_{{II}}}}^{{{ts},{iter}}}$')
+                    
                     # Save the results to files
-                    '''np.savetxt('U ts = ' + str(ts) +'.txt', U_)
+                    np.savetxt('U ts = ' + str(ts) +'.txt', U_)
                     np.savetxt('V ts = ' + str(ts) +'.txt', V_)
                     np.savetxt('V1 ts = ' + str(ts) +'.txt', s_v_pred)  
                     np.savetxt('U1 ts = ' + str(ts) +'.txt', s_u_pred)
                     np.savetxt('s_e_xx_pred ts = ' + str(ts) +'.txt', s_e_xx_pred_tot)
                     np.savetxt('s_e_yy_pred ts = ' + str(ts) +'.txt', s_e_yy_pred_tot)
                     np.savetxt('s_e_xy_pred ts = ' + str(ts) +'.txt', s_e_xy_pred_tot)
-                    np.savetxt(f'error_list_FE_NO_elasto ts=' + str(ts) + ' iter=' + str(iter) + '.txt', error_list)'''
+                    np.savetxt(f'error_list_FE_NO_elasto ts=' + str(ts) + ' iter=' + str(iter) + '.txt', error_list)
                 if ts >= ts_end:
-                    # ---- 外域 FE 解：u 本身是 V 上的 Function，直接写 ----
+                    # ---- Outer-domain FE solution: u is already a Function on V, write it directly ----
                     with VTKFile(mesh.comm, f"U_outer_ts_{ts}.pvd", "w") as vtk:
                         vtk.write_function(u, t)
 
-                    # ---- 内域 NN 位移：构造 V2 上的向量 Function 再写 ----
-                    # s_u_pred / s_v_pred 的顺序与 (X1, Y1) 一致，
-                    # 正好对应 V2 (CG2 向量) 的 array.reshape(-1,3) 块顺序
+                    # ---- Inner-domain NN displacement: build a vector Function on V2, then write it ----
+                    # s_u_pred / s_v_pred are ordered the same as (X1, Y1),
+                    # which matches the block order of array.reshape(-1,3) for V2 (CG2 vector space)
                     u2_nn = Function(V2, name="Displacement_NN")
                     u2_nn.x.array[:] = np.hstack((
                         s_u_pred.reshape(-1, 1),
@@ -1039,7 +1022,7 @@ for ts in trange(170):
                     with VTKFile(mesh2.comm, f"U_inner_NN_ts_{ts}.pvd", "w") as vtk:
                         vtk.write_function(u2_nn, t)
 
-                    # ---- 内域 NN 应变：标量场，放进标量 CG2 空间 ----
+                    # ---- Inner-domain NN strain: scalar fields, placed in a scalar CG2 space ----
                     Vs = functionspace(mesh2, ("CG", 2))
                     e_xx = Function(Vs, name="e_xx"); e_xx.x.array[:] = s_e_xx_pred_tot
                     e_yy = Function(Vs, name="e_yy"); e_yy.x.array[:] = s_e_yy_pred_tot
