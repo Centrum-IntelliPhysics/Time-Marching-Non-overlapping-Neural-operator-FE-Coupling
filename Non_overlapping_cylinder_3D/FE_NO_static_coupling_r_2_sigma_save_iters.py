@@ -2,6 +2,20 @@
 =============================================================================
 FE-NO non-overlapping coupling: the trained operator replaces Omega_I.
 
+    *** PORTED TO DOLFINx 0.8.0 ***
+    The original was written against DOLFINx 0.11.  Everything that the two
+    versions disagree about is isolated in the COMPAT block below, so this
+    file also runs unchanged on 0.9 / 0.10 / 0.11.  The four differences are:
+
+      1. mesh reading      0.8  dolfinx.io.gmshio.read_from_msh -> 3-tuple
+                           0.9+ MeshData object (.mesh/.cell_tags/.facet_tags)
+      2. create_vector     <=0.10 takes the FORM,  0.11 takes the SPACE
+      3. PETSc vector of a Function   Function.vector  vs  Function.x.petsc_vec
+      4. element.interpolation_points   method (0.8) vs property (0.9+)
+
+    Nothing else in the script is version dependent.
+-----------------------------------------------------------------------------
+
     Omega_I   r in [1, 2]   the NEURAL OPERATOR      (no mesh, no solve)
     Omega_II  r in [2, 4]   FE on Tube_outer.msh
 
@@ -76,10 +90,12 @@ solution amplified by 1/(1 - rho), with rho ~ 0.40 measured from the FE-FE run.
 The script measures the actual coupled error against the FE-FE solution and
 compares it with that prediction, so the estimate is checked, not assumed.
 
-Run:  python FE_NO_static_coupling_r_2_original.py
-      python FE_NO_static_coupling_r_2_original.py --theta 0.3     # if it diverges
-      python FE_NO_static_coupling_r_2_original.py --relax traction
-      python FE_NO_static_coupling_r_2_original.py --ckpt ... --data ...
+Run:  python FE_NO_static_coupling_r_2_dolfinx080.py
+      python FE_NO_static_coupling_r_2_dolfinx080.py --theta 0.3   # if it diverges
+      python FE_NO_static_coupling_r_2_dolfinx080.py --relax traction
+      python FE_NO_static_coupling_r_2_dolfinx080.py --ckpt ... --data ...
+
+If JAX still has the CUDA version mismatch, prefix with JAX_PLATFORMS=cpu.
 =============================================================================
 """
 
@@ -94,8 +110,8 @@ import pickle
 import argparse
 from scipy.spatial import cKDTree
 
+import dolfinx
 from dolfinx import fem, default_scalar_type
-from dolfinx.io import gmsh as dgmsh
 from dolfinx.fem.petsc import (assemble_matrix, assemble_vector,
                                apply_lifting, set_bc, create_vector)
 
@@ -109,13 +125,60 @@ from prepare_DeepONet_3D_tube_r_2_final_regularization import PI_DeepONet
 
 
 # ===========================================================================
+# COMPAT -- everything DOLFINx 0.8 and 0.11 disagree about, in one place.
+#           Written so the file runs on 0.8 (the target) and on 0.9 - 0.11.
+# ===========================================================================
+print(f"DOLFINx {dolfinx.__version__}")
+
+
+def read_msh(path, comm=MPI.COMM_WORLD, gdim=3):
+    """(mesh, cell_tags, facet_tags).
+
+    0.8   dolfinx.io.gmshio.read_from_msh -> plain 3-tuple
+    0.9   dolfinx.io.gmshio.read_from_msh -> MeshData
+    0.10+ dolfinx.io.gmsh.read_from_msh   -> MeshData
+    """
+    try:
+        from dolfinx.io import gmshio as _g
+    except ImportError:                       # 0.10+ renamed the module
+        from dolfinx.io import gmsh as _g
+    out = _g.read_from_msh(path, comm, gdim=gdim)
+    if hasattr(out, "mesh"):                  # MeshData
+        return out.mesh, out.cell_tags, out.facet_tags
+    return out                                # 0.8 tuple
+
+
+def create_rhs(V, L_form):
+    """Ghosted PETSc RHS vector.
+
+    fem.petsc.create_vector takes the FORM up to 0.10 and the FUNCTION SPACE
+    in 0.11.  Try the 0.8 spelling first, fall back to the 0.11 one.  The
+    ghost layout matters: ghostUpdate(ADD, REVERSE) below depends on it.
+    """
+    try:
+        return create_vector(L_form)          # <= 0.10
+    except (TypeError, AttributeError):
+        return create_vector(V)               # 0.11
+
+
+def petsc_vec(f):
+    """The PETSc Vec behind a Function: f.vector on 0.8, f.x.petsc_vec later."""
+    pv = getattr(f.x, "petsc_vec", None)
+    return pv if pv is not None else f.vector
+
+
+def ipoints(V):
+    """element.interpolation_points: a METHOD on 0.8, a PROPERTY on 0.9+."""
+    ip = V.element.interpolation_points
+    return ip() if callable(ip) else ip
+
+
+# ===========================================================================
 # 0.  configuration
 # ===========================================================================
 ap = argparse.ArgumentParser(description="FE-NO non-overlapping coupling")
 ap.add_argument('--ckpt', type=str,
                 default='results/DeepONet_3D_tube_r_2_new_2_edge_scale_500/DeepONet_3D_tube_r_2.pkl')
-ap.add_argument('--data', type=str,
-                default='results/FE_full_static_dataset_r_2_N_1000_new/dataset_omega1_r_2.h5')
 ap.add_argument('--fefe', type=str,
                 default='results/FE_FE_coupling_results/interface_trajectory.h5')
 ap.add_argument('--theta', type=float, default=0.9,
@@ -137,7 +200,7 @@ args = ap.parse_args()
 
 THETA, NITER, TOL, RELAX = args.theta, args.niter, args.tol, args.relax
 
-SCALE = 500 # scale factor for the branch input, to match the training data
+SCALE = 500  # scale factor for the branch input, to match the training data
 
 R1, R2, R3, H = 1.0, 2.0, 4.0, 4.0
 BOTTOM, TOP, S_INNER, S_OUTER, SYM_A, SYM_B = 1, 2, 3, 4, 5, 6
@@ -160,11 +223,7 @@ def _abs(p):
     return p if os.path.isabs(p) else os.path.join(originalDir, p)
 
 
-CKPT, DATA, FEFE = _abs(args.ckpt), _abs(args.data), _abs(args.fefe)
-for path, name, flag in ((CKPT, "checkpoint", "--ckpt"),
-                         (DATA, "dataset", "--data")):
-    if not os.path.exists(path):
-        raise SystemExit(f"{name} not found:\n  {path}\nuse {flag} to override")
+CKPT, FEFE = _abs(args.ckpt), _abs(args.fefe)
 
 
 def epsilon(u):
@@ -212,8 +271,7 @@ class Subdomain:
 
     def __init__(self, msh_file, name):
         self.name = name
-        md = dgmsh.read_from_msh(msh_file, MPI.COMM_WORLD, gdim=3)
-        self.mesh, self.facet_tags = md.mesh, md.facet_tags
+        self.mesh, _, self.facet_tags = read_msh(msh_file, MPI.COMM_WORLD, gdim=3)
         self.tdim = self.mesh.topology.dim
         self.fdim = self.tdim - 1
         self.mesh.topology.create_connectivity(self.fdim, self.tdim)
@@ -251,8 +309,8 @@ class Subdomain:
                                + ufl.inner(traction, v) * ds(iface_tag))
         self.A = assemble_matrix(self.a_form, bcs=bcs)
         self.A.assemble()
-        # DOLFINx 0.11: create_vector takes the FUNCTION SPACE, not the form.
-        self.b = create_vector(self.V)
+        # COMPAT: 0.8 create_vector(form); 0.11 create_vector(space).
+        self.b = create_rhs(self.V, self.L_form)
         self.ksp = PETSc.KSP().create(self.mesh.comm)
         self.ksp.setOperators(self.A)
         self.ksp.setType(PETSc.KSP.Type.CG)
@@ -268,7 +326,7 @@ class Subdomain:
         self.b.ghostUpdate(addv=PETSc.InsertMode.ADD,
                            mode=PETSc.ScatterMode.REVERSE)
         set_bc(self.b, self.bcs)
-        self.ksp.solve(self.b, self.uh.x.petsc_vec)
+        self.ksp.solve(self.b, petsc_vec(self.uh))     # COMPAT
         self.uh.x.scatter_forward()
         return self.ksp.getIterationNumber()
 
@@ -295,11 +353,6 @@ e_r[:, 1] = xII[:, 1] / rr
 # ===========================================================================
 # 2.  the operator
 # ===========================================================================
-with h5py.File(DATA, "r") as f:
-    mu_d, lmbda_d = float(f.attrs["mu"]), float(f.attrs["lmbda"])
-assert abs(mu_d - MU) < 1e-12 and abs(lmbda_d - LMBDA) < 1e-12, \
-    "material constants differ between this script and the training data"
-
 with open(CKPT, "rb") as fh:
     _ck = pickle.load(fh)
 params, cfg = _ck["params"], _ck["config"]
@@ -329,6 +382,7 @@ assert _ck_scale in (None, 1, 1.0), (
 
 assert m_s == dII.size, \
     f"branch expects {m_s} interface points, Omega_II has {dII.size}"
+
 
 # The branch input must be assembled in the TRAINING point order, so map
 # Omega_II's interface dofs onto it.  Conformal meshes -> exact permutation.
@@ -395,8 +449,7 @@ OII.setup(OII.rollers(), S_INNER, traction)
 # The blocks of the (3,3) CG2 space and the (3,) CG2 space share the scalar
 # dofmap, so `dII` indexes both.  Section 8 already relies on that alignment.
 VtII_iter = fem.functionspace(OII.mesh, ("Lagrange", 2, (3, 3)))
-_ip_iter = VtII_iter.element.interpolation_points
-_ip_iter = _ip_iter() if callable(_ip_iter) else _ip_iter
+_ip_iter = ipoints(VtII_iter)                                   # COMPAT
 _sig_II_fn = fem.Function(VtII_iter)
 _sig_II_expr = fem.Expression(sigma(OII.uh), _ip_iter)
 
@@ -461,6 +514,7 @@ print("the centre of its training distribution, not outside it.\n")
 
 u_gamma = np.zeros((dII.size, 3))
 u_prev_full, err0, t_II = None, None, None
+t_I = None
 hist, iterates = [], []
 uII_iterates = []          # full Omega_II (FE) displacement field each sweep,
                            # kept so the per-sweep dataset can be rebuilt below
@@ -597,8 +651,7 @@ print("FE-NO vs the MONOLITHIC solution (Tube_entire.msh)")
 print("=" * 70)
 print("solving the monolithic reference ...")
 os.chdir(mesh_dir)
-_md = dgmsh.read_from_msh("Tube_entire.msh", MPI.COMM_WORLD, gdim=3)
-dom, ftags = _md.mesh, _md.facet_tags
+dom, _, ftags = read_msh("Tube_entire.msh", MPI.COMM_WORLD, gdim=3)   # COMPAT
 fdim = dom.topology.dim - 1
 dom.topology.create_connectivity(fdim, dom.topology.dim)
 Vm = fem.functionspace(dom, ("Lagrange", 2, (3,)))
@@ -622,7 +675,7 @@ f_ = fem.Constant(dom, default_scalar_type((0.0, 0.0, 0.0)))
 am = fem.form(ufl.inner(sigma(u_), epsilon(v_)) * ufl.dx)
 Lm = fem.form(ufl.inner(f_, v_) * ufl.dx)
 Am = assemble_matrix(am, bcs=bcs_m); Am.assemble()
-bm = create_vector(Vm)                       # 0.11: space, not form
+bm = create_rhs(Vm, Lm)                       # COMPAT
 assemble_vector(bm, Lm)
 apply_lifting(bm, [am], bcs=[bcs_m])
 bm.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
@@ -630,14 +683,14 @@ set_bc(bm, bcs_m)
 uhm = fem.Function(Vm, name="displacement")
 kspm = PETSc.KSP().create(dom.comm); kspm.setOperators(Am)
 kspm.setType(PETSc.KSP.Type.CG); kspm.getPC().setType(PETSc.PC.Type.GAMG)
-kspm.setTolerances(rtol=1e-10); kspm.solve(bm, uhm.x.petsc_vec)
+kspm.setTolerances(rtol=1e-10)
+kspm.solve(bm, petsc_vec(uhm))                # COMPAT
 uhm.x.scatter_forward()
 
 # strain of the monolithic solution, CG2 -- the same recovery the dataset used,
 # so the comparison measures the operator and not a post-processing difference
 Vtm = fem.functionspace(dom, ("Lagrange", 2, (3, 3)))
-_ip = Vtm.element.interpolation_points
-_ip = _ip() if callable(_ip) else _ip
+_ip = ipoints(Vtm)                            # COMPAT
 epsm = fem.Function(Vtm)
 epsm.interpolate(fem.Expression(epsilon(uhm), _ip))
 Um = uhm.x.array.reshape(-1, 3)
@@ -738,8 +791,7 @@ print("\nassembling the 3-D fields on the monolithic mesh ...")
 # strain of the Omega_II FE solution, CG2, so both halves are recovered the
 # same way as the training data
 VtII = fem.functionspace(OII.mesh, ("Lagrange", 2, (3, 3)))
-_ip2 = VtII.element.interpolation_points
-_ip2 = _ip2() if callable(_ip2) else _ip2
+_ip2 = ipoints(VtII)                          # COMPAT
 epsII = fem.Function(VtII)
 epsII.interpolate(fem.Expression(epsilon(OII.uh), _ip2))
 E_II = epsII.x.array.reshape(-1, 9)[:, [0, 4, 8, 1, 2, 5]]

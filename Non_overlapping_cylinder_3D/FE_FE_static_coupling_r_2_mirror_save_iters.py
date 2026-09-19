@@ -2,6 +2,19 @@
 =============================================================================
 FE-FE coupling, MIRRORED onto the FE-NO iteration so the two are comparable.
 
+    *** PORTED TO DOLFINx 0.8.0 ***
+    Same COMPAT block as FE_NO_static_coupling_r_2_dolfinx080.py, so this file
+    also runs unchanged on 0.9 / 0.10 / 0.11.  The four differences are:
+
+      1. mesh reading      0.8  dolfinx.io.gmshio.read_from_msh -> 3-tuple
+                           0.9+ MeshData object (.mesh/.cell_tags/.facet_tags)
+      2. create_vector     <=0.10 takes the FORM,  0.11 takes the SPACE
+      3. PETSc vector of a Function   Function.vector  vs  Function.x.petsc_vec
+      4. element.interpolation_points   method (0.8) vs property (0.9+)
+
+    Nothing else in the script is version dependent.
+-----------------------------------------------------------------------------
+
 This is FE_FE_static_coupling_r_2.py with one thing changed: the iteration is
 now bit-for-bit the one FE_NO_static_coupling runs, with the neural operator
 replaced by an exact FE solve of Omega_I.  Everything else -- meshes, load,
@@ -47,6 +60,23 @@ Omega_I here plays exactly the role the operator plays in FE-NO: it is handed a
 displacement on Gamma and returns a traction.  Omega_II is the same Neumann
 problem in both scripts.
 
+STOPPING TEST -- ALIGNED WITH FE-NO
+-----------------------------------
+    err = || u_II^k - u_II^{k-1} ||  +  || u_Gamma^k - u_Gamma^{k-1} ||
+
+term for term what FE_NO_static_coupling compares to TOL: the Omega_II volume
+increment plus the interface increment.  The earlier version of this script
+summed the two VOLUME increments instead (Omega_I + Omega_II).  Since these are
+unnormalised dof-sum norms, the Omega_I term (~257k points) dwarfed the
+interface term FE-NO has in that slot (~thousands), making the same TOL a
+strictly harder target here -- so the sweep counts were never comparable.  They
+are now.  ||Delta u_I|| is still recorded as a diagnostic in `conv`,
+convergence_mirror.txt and the npz; it simply no longer drives the stop.
+
+Only FE-NO's DEFAULT mode (--relax traction) is mirrored here.  FE-NO's
+--relax u applies displacement under-relaxation with no flux blend, which this
+script has no branch for.
+
 SIGN
 ----
 Both t_I and t_II are reported as sigma . (+e_r), the convention
@@ -62,7 +92,7 @@ The three roller planes remove all six rigid-body modes (x=0 locks u_x, y=0
 locks u_y, z=0 and z=h lock u_z, and those three together kill the rotations),
 so it is well posed.  Same argument as in the FE-NO script.
 
-Written for DOLFINx 0.11.  Serial.
+Serial.
 =============================================================================
 """
 
@@ -73,13 +103,63 @@ import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 import ufl
+import dolfinx
 from dolfinx import fem, default_scalar_type
-from dolfinx.io import gmsh as dgmsh, VTXWriter
+from dolfinx.io import VTXWriter
 from dolfinx.fem.petsc import (assemble_matrix, assemble_vector,
                                apply_lifting, set_bc, create_vector)
 from scipy.spatial import cKDTree
 
 from utils import createFolder
+
+
+# ===========================================================================
+# COMPAT -- everything DOLFINx 0.8 and 0.11 disagree about, in one place.
+#           Identical to the block in FE_NO_static_coupling_r_2_dolfinx080.py.
+# ===========================================================================
+print(f"DOLFINx {dolfinx.__version__}")
+
+
+def read_msh(path, comm=MPI.COMM_WORLD, gdim=3):
+    """(mesh, cell_tags, facet_tags).
+
+    0.8   dolfinx.io.gmshio.read_from_msh -> plain 3-tuple
+    0.9   dolfinx.io.gmshio.read_from_msh -> MeshData
+    0.10+ dolfinx.io.gmsh.read_from_msh   -> MeshData
+    """
+    try:
+        from dolfinx.io import gmshio as _g
+    except ImportError:                       # 0.10+ renamed the module
+        from dolfinx.io import gmsh as _g
+    out = _g.read_from_msh(path, comm, gdim=gdim)
+    if hasattr(out, "mesh"):                  # MeshData
+        return out.mesh, out.cell_tags, out.facet_tags
+    return out                                # 0.8 tuple
+
+
+def create_rhs(V, L_form):
+    """Ghosted PETSc RHS vector.
+
+    fem.petsc.create_vector takes the FORM up to 0.10 and the FUNCTION SPACE
+    in 0.11.  Try the 0.8 spelling first, fall back to the 0.11 one.  The
+    ghost layout matters: ghostUpdate(ADD, REVERSE) below depends on it.
+    """
+    try:
+        return create_vector(L_form)          # <= 0.10
+    except (TypeError, AttributeError):
+        return create_vector(V)               # 0.11
+
+
+def petsc_vec(f):
+    """The PETSc Vec behind a Function: f.vector on 0.8, f.x.petsc_vec later."""
+    pv = getattr(f.x, "petsc_vec", None)
+    return pv if pv is not None else f.vector
+
+
+def ipoints(V):
+    """element.interpolation_points: a METHOD on 0.8, a PROPERTY on 0.9+."""
+    ip = V.element.interpolation_points
+    return ip() if callable(ip) else ip
 
 
 # ===========================================================================
@@ -159,7 +239,7 @@ else:
 
 
 # ===========================================================================
-# 2.  helpers  (unchanged from the original script)
+# 2.  helpers
 # ===========================================================================
 def detect_roller(V, facet_tags, tag, fdim, tol=1e-9):
     """Which displacement component does the flat face `tag` lock?
@@ -184,8 +264,8 @@ class Subdomain:
 
     def __init__(self, msh_file, name):
         self.name = name
-        md = dgmsh.read_from_msh(msh_file, MPI.COMM_WORLD, gdim=3)
-        self.mesh, self.facet_tags = md.mesh, md.facet_tags
+        self.mesh, _, self.facet_tags = read_msh(msh_file, MPI.COMM_WORLD,
+                                                 gdim=3)          # COMPAT
         self.tdim = self.mesh.topology.dim
         self.fdim = self.tdim - 1
         self.mesh.topology.create_connectivity(self.fdim, self.tdim)
@@ -199,10 +279,9 @@ class Subdomain:
         self.Vsig = fem.functionspace(self.mesh, ("Lagrange", 2, (3, 3)))
         assert np.allclose(self.Vsig.tabulate_dof_coordinates(), self.dof_x), \
             "V and Vsig block layouts differ"
-        ip = self.Vsig.element.interpolation_points
-        ip = ip() if callable(ip) else ip
         self.sig = fem.Function(self.Vsig)
-        self.sig_expr = fem.Expression(sigma(self.uh), ip)   # built once
+        self.sig_expr = fem.Expression(sigma(self.uh),
+                                       ipoints(self.Vsig))        # COMPAT
 
         print(f"[{name}] cells={self.mesh.topology.index_map(self.tdim).size_local}"
               f"  P2 vector dofs={self.V.dofmap.index_map.size_local * 3}")
@@ -239,7 +318,8 @@ class Subdomain:
         self.L_form = fem.form(L)
         self.A = assemble_matrix(self.a_form, bcs=bcs)
         self.A.assemble()
-        self.b = create_vector(self.V)      # 0.11: space, not form
+        # COMPAT: 0.8 create_vector(form); 0.11 create_vector(space).
+        self.b = create_rhs(self.V, self.L_form)
         self.ksp = PETSc.KSP().create(self.mesh.comm)
         self.ksp.setOperators(self.A)
         self.ksp.setType(PETSc.KSP.Type.CG)
@@ -255,7 +335,7 @@ class Subdomain:
         self.b.ghostUpdate(addv=PETSc.InsertMode.ADD,
                            mode=PETSc.ScatterMode.REVERSE)
         set_bc(self.b, self.bcs)
-        self.ksp.solve(self.b, self.uh.x.petsc_vec)
+        self.ksp.solve(self.b, petsc_vec(self.uh))                # COMPAT
         self.uh.x.scatter_forward()
         return self.ksp.getIterationNumber()
 
@@ -343,11 +423,12 @@ print(f"  u_Gamma^0 = 0, matching the FE-NO script\n")
 
 u_gamma = np.zeros((dI.size, 3))         # in the Omega_I ordering
 t_II = None
+t_I = None                               # so the final savez cannot NameError
 full_prev = None
 hist, iterates = [], []
 uI_iterates, uII_iterates = [], []      # full FE fields each sweep, kept so
                                         # the per-sweep dataset can be rebuilt
-conv = []                               # per-sweep [Δu_I, Δu_II] for
+conv = []                               # per-sweep [du_I, du_II] for
                                         # static_convergence_plot.py
 
 for it in range(NITER):
@@ -373,21 +454,43 @@ for it in range(NITER):
     du = np.linalg.norm(u_new - u_gamma)
     u_gamma = u_new
 
-    # ---- (d) convergence : the same criterion as the original script -----
+    # ---- (d) convergence : IDENTICAL to the FE-NO script ------------------
+    #
+    # ALIGNED WITH FE-NO.  The FE-NO script stops on
+    #
+    #       err = || u_II^k - u_II^{k-1} ||  +  || u_Gamma^k - u_Gamma^{k-1} ||
+    #
+    # i.e. the Omega_II VOLUME increment plus the INTERFACE increment.  It has
+    # no choice: its Omega_I is the operator, which has no mesh and therefore
+    # no volume field to difference.
+    #
+    # The original version of this script used dU_I + dU_II -- both VOLUME
+    # increments.  These norms are unnormalised sums over dofs, so their
+    # magnitude scales with the dof count: Omega_I carries ~257k points where
+    # FE-NO has only the few-thousand-point interface.  Against the same
+    # TOL that made this script's test systematically STRICTER, and
+    # "FE-FE took N sweeps, FE-NO took M" stopped being a like-for-like
+    # statement -- which is the one thing this mirrored script exists to fix.
+    #
+    # So the stopping test below is now FE-NO's, term for term.  Both scripts
+    # difference the SAME Omega_II field (both read Tube_outer.msh, same mesh,
+    # same dof order) and the SAME interface increment `du`, defined here
+    # exactly as there: || u_new - u_gamma || taken BEFORE u_gamma is updated.
+    #
+    # dU_I is still computed and still written to `conv` /
+    # convergence_mirror.txt / the npz -- it is useful as a diagnostic, it just
+    # no longer drives the stop.
     uI_full = OI.uh.x.array.reshape(-1, 3).copy()
     uII_full = OII.uh.x.array.reshape(-1, 3).copy()
     uI_iterates.append(uI_full)         # paired with iterates[it] above
     uII_iterates.append(uII_full)
-    # per-subdomain increments  Δu_I, Δu_II  -- the two curves
-    # static_convergence_plot.py draws.  Their SUM is the original combined
-    # `err` convergence criterion, so the stopping test is unchanged.
     if full_prev is None:
         dU_I = dU_II = np.nan
     else:
         dU_I  = float(np.linalg.norm(uI_full  - full_prev[0]))
         dU_II = float(np.linalg.norm(uII_full - full_prev[1]))
     conv.append([dU_I, dU_II])
-    err = np.nan if full_prev is None else (dU_I + dU_II)
+    err = np.nan if full_prev is None else (dU_II + du)      # <- FE-NO's test
     full_prev = (uI_full, uII_full)
 
     # physical residual: do the two sides carry the same traction on Gamma?
@@ -406,18 +509,23 @@ else:
     print(f"WARNING: not converged in {NITER} iterations")
 
 hist = np.array(hist)
-conv = np.array(conv)                    # (n_sweeps, 2) = [Δu_I, Δu_II]
+conv = np.array(conv)                    # (n_sweeps, 2) = [du_I, du_II]
 print(f"wall time {time.time() - t0:.1f} s")
 
 # ---- the single convergence curve for static_convergence_plot.py ------------
 # It loads current/error_list_FE_FE.npy as ONE column, "L2 error vs inner
-# iteration".  That column is the per-sweep coupling increment Δu_I + Δu_II
-# (== hist[:,0], the quantity the stop test compares to TOL -- which is why the
-# reference curves all terminate at ~TOL).  The leading sweep has no
-# predecessor, so its NaN is dropped and the curve starts at inner iteration 1,
-# exactly reproducing the 2-D reference (FE-FE ~28 pts, FE-NO ~10 pts).
-# The per-subdomain Δu_I / Δu_II are still kept separately in `conv` /
-# coupling_history_mirror.npz / convergence_mirror.txt below.
+# iteration".  That column is hist[:,0] = ||Delta u_II|| + ||Delta u_Gamma||,
+# the quantity the stop test compares to TOL -- which is why the curve
+# terminates at ~TOL.
+#
+# This is now the SAME quantity FE-NO writes to error_list_FE_NN.npy, computed
+# on the same Omega_II mesh, so the two curves may be plotted on one pair of
+# axes and their lengths compared directly.  Before the alignment above they
+# were different measures and the comparison was meaningless.
+#
+# The leading sweep has no predecessor, so its NaN is dropped and the curve
+# starts at inner iteration 1.  The per-subdomain du_I / du_II are still kept
+# separately in `conv` / coupling_history_mirror.npz / convergence_mirror.txt.
 error_list_FE_FE = hist[np.isfinite(hist[:, 0]), 0]
 np.save(os.path.join(out_dir, "error_list_FE_FE.npy"), error_list_FE_FE)
 print(f"wrote error_list_FE_FE.npy ({error_list_FE_FE.size} inner iterations) "
@@ -451,8 +559,7 @@ report = {"theta": THETA, "rho": RHO, "n_iter": hist.shape[0]}
 if VALIDATE_AGAINST_MONOLITHIC:
     print("\nsolving the monolithic reference on Tube_entire.msh ...")
     os.chdir(mesh_dir)
-    md = dgmsh.read_from_msh("Tube_entire.msh", MPI.COMM_WORLD, gdim=3)
-    dom, ftags = md.mesh, md.facet_tags
+    dom, _, ftags = read_msh("Tube_entire.msh", MPI.COMM_WORLD, gdim=3)  # COMPAT
     fdim = dom.topology.dim - 1
     dom.topology.create_connectivity(fdim, dom.topology.dim)
     Vm = fem.functionspace(dom, ("Lagrange", 2, (3,)))
@@ -474,7 +581,7 @@ if VALIDATE_AGAINST_MONOLITHIC:
     am = fem.form(ufl.inner(sigma(u_), epsilon(v_)) * ufl.dx)
     Lm = fem.form(ufl.inner(f_, v_) * ufl.dx)
     Am = assemble_matrix(am, bcs=bcs_m); Am.assemble()
-    bm = create_vector(Vm)
+    bm = create_rhs(Vm, Lm)                                         # COMPAT
     assemble_vector(bm, Lm)
     apply_lifting(bm, [am], bcs=[bcs_m])
     bm.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
@@ -482,13 +589,13 @@ if VALIDATE_AGAINST_MONOLITHIC:
     uhm = fem.Function(Vm, name="displacement")
     kspm = PETSc.KSP().create(dom.comm); kspm.setOperators(Am)
     kspm.setType(PETSc.KSP.Type.CG); kspm.getPC().setType(PETSc.PC.Type.GAMG)
-    kspm.setTolerances(rtol=1e-10); kspm.solve(bm, uhm.x.petsc_vec)
+    kspm.setTolerances(rtol=1e-10)
+    kspm.solve(bm, petsc_vec(uhm))                                  # COMPAT
     uhm.x.scatter_forward()
 
     # strain/stress of the monolithic solution, CG2, same recovery as above
     Vtm = fem.functionspace(dom, ("Lagrange", 2, (3, 3)))
-    ipm = Vtm.element.interpolation_points
-    ipm = ipm() if callable(ipm) else ipm
+    ipm = ipoints(Vtm)                                              # COMPAT
     sigm = fem.Function(Vtm)
     sigm.interpolate(fem.Expression(sigma(uhm), ipm))
 
@@ -561,10 +668,8 @@ if VALIDATE_AGAINST_MONOLITHIC:
     # --- both subdomains' CG2 strain, recovered the same way as the reference
     def _strain_of(sub):
         Vt = fem.functionspace(sub.mesh, ("Lagrange", 2, (3, 3)))
-        ip = Vt.element.interpolation_points
-        ip = ip() if callable(ip) else ip
         fn = fem.Function(Vt)
-        fn.interpolate(fem.Expression(epsilon(sub.uh), ip))
+        fn.interpolate(fem.Expression(epsilon(sub.uh), ipoints(Vt)))  # COMPAT
         return fn.x.array.reshape(-1, 9)[:, VOIGT_IDX]
 
     E_I, E_II_f = _strain_of(OI), _strain_of(OII)
@@ -701,12 +806,12 @@ if VALIDATE_AGAINST_MONOLITHIC:
     #
     #      ALIGNMENT -- the key point.  This uses the SAME monolithic mesh
     #      (Tube_entire.msh), the SAME r-masks (inI, inII) and the SAME dof
-    #      order as FE_NO_static_coupling_r_2_sigma_save_iters.py.  DOLFINx
-    #      numbers the dofs of a given mesh + element deterministically, so run
-    #      serially both scripts produce byte-identical xm, hence identical
-    #      xm[inII] (-> X/Y/Z) and xm[inI] (-> X1/Y1/Z1).  The plot can therefore
-    #      subtract FE-FE from FE-NO point-for-point with NO interpolation.
-    #      (static_ux_figure_3d.py also asserts this at load time.)
+    #      order as the FE-NO script.  DOLFINx numbers the dofs of a given mesh
+    #      + element deterministically, so run serially both scripts produce
+    #      byte-identical xm, hence identical xm[inII] (-> X/Y/Z) and xm[inI]
+    #      (-> X1/Y1/Z1).  The plot can therefore subtract FE-FE from FE-NO
+    #      point-for-point with NO interpolation.  (static_ux_figure_3d.py also
+    #      asserts this at load time.)
     #
     #      FIGURE domain mapping (2-D example convention, Omega_I = outer):
     #          FIGURE Omega_I  (outer r in [2,4]) = this run's Omega_II -> u  i=j
@@ -856,7 +961,9 @@ try:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(1, 2, figsize=(11, 4))
-    ax[0].semilogy(hist[:, 0], "o-", label=r"$\|\Delta u_I\|+\|\Delta u_{II}\|$")
+    # same label as the FE-NO figure -- the two curves are now the same measure
+    ax[0].semilogy(hist[:, 0], "o-",
+                   label=r"$\|\Delta u_{II}\|+\|\Delta u_\Gamma\|$")
     ax[0].semilogy(hist[:, 1], "s-", ms=3, alpha=.7,
                    label="traction mismatch")
     ax[0].axhline(TOL, color="k", ls="--", lw=0.8, label=f"tol {TOL:.0e}")
@@ -878,7 +985,7 @@ except Exception as e:
 # them.  Passing them a second time as explicit keywords is what raised
 # "got multiple values for keyword argument 'theta'".
 _out = dict(history=hist,              # (n, 3) [error, traction mismatch, du]
-            convergence=conv,          # (n, 2) [Δu_I, Δu_II]  <- for the conv plot
+            convergence=conv,          # (n, 2) [du_I, du_II]  <- for the conv plot
             dU_I=conv[:, 0],           # ||u_I^k  - u_I^{k-1}||   per sweep
             dU_II=conv[:, 1],          # ||u_II^k - u_II^{k-1}||  per sweep
             load_mode=np.array(LOAD_MODE),
@@ -892,7 +999,7 @@ np.savez_compressed("coupling_history_mirror.npz", **_out)
 print("wrote coupling_history_mirror.npz:", ", ".join(sorted(_out)))
 
 # plain-text convergence table too, in case static_convergence_plot.py loadtxt's
-# it: columns = iteration, Δu_I, Δu_II  (row 0 is NaN -- no previous sweep yet)
+# it: columns = iteration, du_I, du_II  (row 0 is NaN -- no previous sweep yet)
 _conv_tbl = np.column_stack([np.arange(conv.shape[0]), conv])
 np.savetxt("convergence_mirror.txt", _conv_tbl,
            header="iter    dU_I            dU_II", fmt=["%5d", "%.8e", "%.8e"])
