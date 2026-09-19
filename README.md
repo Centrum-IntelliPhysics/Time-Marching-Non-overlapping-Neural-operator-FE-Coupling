@@ -24,18 +24,19 @@ This is the successor to our overlapping FE–NO framework
 [code](https://github.com/Centrum-IntelliPhysics/Time-Marching-Neural-Operator-FE-Coupling)).
 
 <div align="center">
-  <img src="readme_figures/fe_fe_vs_fe_no_race.gif" width="480" alt="FE-FE vs FE-NO wall-clock comparison">
+  <img src="readme_figures/fe_fe_vs_fe_no_race.gif" width="460" alt="FE-FE vs FE-NO wall-clock comparison">
 </div>
 
 ---
 
 ## What is new
 
-The earlier FE–NO framework coupled a physics-informed DeepONet to an FE solver through an
-**overlapping** domain decomposition with **Dirichlet–Dirichlet** interface exchange. Two limitations
-followed from that choice: the overlap layer required redundant interface computations that inflated
-the inner Schwarz iteration count, and a convolutional feature extractor confined the NO subdomain to
-structured grids. This work removes both.
+The earlier FE–NO framework used an **overlapping** domain decomposition with **Dirichlet–Dirichlet**
+interface exchange. The overlap layer required redundant interface computations that inflated the
+inner Schwarz iteration count, and a convolutional feature extractor confined the NO subdomain to
+structured grids. This work removes both limitations.
+
+![Overlapping vs non-overlapping decomposition](readme_figures/schematic.png)
 
 | | Overlapping (Wang et al., 2025) | **Non-overlapping (this work)** |
 |---|---|---|
@@ -46,59 +47,24 @@ structured grids. This work removes both.
 | Strain / stress | separate networks | **derived analytically** from the displacement operator |
 | Inner Schwarz iterations (elastodynamic) | 9 | **3** |
 
-<table>
-<tr>
-<td width="50%"><img src="readme_figures/schematic_overlapping_prior.png" alt="Overlapping decomposition"></td>
-<td width="50%"><img src="readme_figures/schematic_nonoverlapping_this_work.png" alt="Non-overlapping decomposition"></td>
-</tr>
-</table>
-
----
-
-## Abstract
-
-Finite element (FE) methods are the benchmark for solid mechanics simulations, yet their
-computational cost becomes prohibitive for problems with localised nonlinearities, fine-scale
-features, or long-time dynamic evolution. In our earlier FE–neural operator (FE–NO) hybrid framework,
-physics-informed deep operator networks were coupled with FE solvers through overlapping domain
-decomposition with Dirichlet–Dirichlet interface exchange, accelerating intensive subdomains while
-preserving FE fidelity elsewhere. Two limitations remained: the overlapping formulation required
-redundant interface computations that increased inner Schwarz iteration counts, and the convolutional
-feature extractor restricted the NO subdomain to structured grids, precluding irregular geometries.
-
-A non-overlapping Schwarz alternating method with Neumann–Dirichlet interface exchange replaces it,
-transmitting traction from the NO to FE rather than displacement. This eliminates the overlap layer
-and reduces inner Schwarz iterations while maintaining bounded error accumulation across all tested
-time horizons. For arbitrarily shaped subdomains, a Point-DeepONet operates on unstructured FE point
-clouds without interpolation, extending it to non-convex and irregular geometries. Strain and stress
-operators are derived analytically from the displacement operators via kinematic equations, rather
-than as independent networks, reducing trainable parameter sets while enforcing mechanical
-consistency by construction. The framework is validated on three benchmarks: static linear
-elasticity, quasi-static hyperelasticity, and elastodynamics with regular and irregular geometries.
-These results establish a non-overlapping FE–NO coupling paradigm that is geometry-flexible,
-parameter-efficient, and convergence-stable, providing a pathway for hybrid physics-based and
-operator-learning solvers in large-scale dynamic solid mechanics.
-
 ---
 
 ## Key contributions
 
-- **Non-overlapping Schwarz coupling with Neumann–Dirichlet exchange.** The NO subdomain returns
-  *traction* to the FE solver instead of displacement, so the two subdomains meet at a single shared
-  interface. The overlap layer and its redundant interface work disappear, and the inner Schwarz
-  iteration count drops.
-- **Point-DeepONet for irregular geometries.** A PointNet branch consumes the unstructured FE point
-  cloud directly — no interpolation onto a structured grid — which lifts the framework to non-convex
-  and irregular subdomains such as the L-shape and the 3-D tube.
-- **Analytically derived strain and stress operators.** Kinematic relations are applied to the
-  displacement operator rather than training separate networks, which shrinks the trainable parameter
-  set and enforces mechanical consistency by construction.
-- **Bounded error over long horizons.** Autoregressive error stays bounded and non-monotonic across
-  every tested time horizon, rather than accumulating.
+- **Non-overlapping Schwarz coupling** with Neumann–Dirichlet exchange — the NO subdomain returns
+  traction instead of displacement, eliminating the overlap layer and its redundant interface work.
+- **Point-DeepONet** consumes the unstructured FE point cloud directly, lifting the framework to
+  non-convex and irregular subdomains without interpolation.
+- **Analytically derived strain and stress operators** from the displacement operator, which shrinks
+  the trainable parameter set and enforces mechanical consistency by construction.
+- **Bounded error over long horizons** — autoregressive error stays bounded and non-monotonic across
+  every tested time horizon.
 
 ---
 
 ## Method
+
+![Framework overview](readme_figures/structure.png)
 
 ### 1. Non-overlapping interface coupling
 
@@ -107,33 +73,22 @@ $\Omega_{\rm NO}$ that share one interface, $\Gamma_{\rm NO} = \Gamma_{\rm FE}$.
 alternating iteration passes **Dirichlet data (displacement)** from FE to NO, and **Neumann data
 (traction)** back from NO to FE.
 
-![Non-overlapping interface coupling](readme_figures/method_interface_coupling.png)
-
-*([vector PDF](readme_figures/method_interface_coupling.pdf))*
-
 ### 2. Point-DeepONet
 
-The displacement operator takes three inputs: a **PointNet branch** over the point cloud carrying the
-previous-step kinematics $(x_0, y_0, u^{n-1}, \dot{u}^{n-1})$, a **second branch** encoding the
-interface boundary data $u^n|_{\partial\Omega}$, and a **trunk** over the query coordinates. Strain
-components $\mathcal{G}^{\varepsilon_{xx}}, \mathcal{G}^{\varepsilon_{xy}},
-\mathcal{G}^{\varepsilon_{yy}}$ follow from $\mathcal{G}^{u_x}, \mathcal{G}^{u_y}$ by
-differentiation — they are not separate networks.
-
-![Point-DeepONet architecture](readme_figures/point_deeponet_architecture.png)
+**Branch 1** encodes the interface boundary conditions $u_n|_\Gamma$. **Branch 2** is a PointNet over
+the point cloud carrying the previous-step kinematics $(x_0, u_{n-1}, \dot{u}_{n-1})$ — shared MLPs
+followed by max pooling reduce $(B, N, C)$ to a global feature $(B, C)$. The **trunk** encodes query
+coordinates on $\Omega_{\rm NO}$. Their product gives the displacement operator
+$\mathcal{G}^{u}_{\theta}$, and automatic differentiation yields the strain operator
+$\mathcal{G}^{\epsilon}_{\theta}$ — not a separate network. Training minimises
+$\mathcal{L} = \mathcal{L}_{\rm res} + \mathcal{L}_{\rm bcs,u} + \mathcal{L}_{\rm bcs,\epsilon}$.
 
 ### 3. Time marching for dynamics
 
-Temporal coupling uses Newmark integration: given $(u_{n-1}, \dot{u}_{n-1}, \ddot{u}_{n-1})$, the
-Point-DeepONet predicts $u_n$ on the point cloud while the FE solver advances $\Omega_{\rm FE}$ with
-interface BCs, and the velocity and acceleration are then updated. Static and quasi-static problems
+Temporal coupling uses Newmark-$\beta$ integration on $\Omega_{\rm NO}$: given
+$(u_{n-1}, \dot{u}_{n-1})$, the Point-DeepONet predicts $u_n$ while the FE solver advances
+$\Omega_{\rm FE}$ with interface BCs, then $\dot{u}_n$ is updated. Static and quasi-static problems
 need the spatial coupling only.
-
-<div align="center">
-  <img src="readme_figures/method_time_marching.png" width="460" alt="Time-marching scheme">
-</div>
-
-*([vector PDF](readme_figures/method_time_marching.pdf))*
 
 ---
 
@@ -146,20 +101,6 @@ need the spatial coupling only.
 | 3 | [`Non_overlapping_dynamic_irregular/`](Non_overlapping_dynamic_irregular) | Elastodynamics | disk |
 | 4 | [`Non_overlapping_dynamic_irregular/`](Non_overlapping_dynamic_irregular) | Elastodynamics, **non-convex** | L-shape |
 | 5 | [`Non_overlapping_cylinder_3D/`](Non_overlapping_cylinder_3D) | Linear elasticity, static, **3-D** | tube sector |
-
-Cases 1–4, with the training loss histories of the corresponding Point-DeepONets
-($\mathcal{L}_{bcs,u}$, $\mathcal{L}_{res}$, $\mathcal{L}_{bcs,\varepsilon}$, $\mathcal{L}_{test}$):
-
-![Benchmark cases and training loss](readme_figures/benchmarks_and_training_loss.png)
-
-*([vector PDF](readme_figures/benchmarks_and_training_loss.pdf))*
-
-Case 5 extends the framework to three dimensions — a tube sector loaded on its inner surface, with
-roller symmetry conditions:
-
-<div align="center">
-  <img src="readme_figures/case5_3d_tube_schematic.png" width="420" alt="3-D tube benchmark">
-</div>
 
 ---
 
@@ -184,30 +125,21 @@ formulation needs **3** inner iterations where the overlapping one needs **9**:
 
 ### Bounded error over long time horizons
 
-Autoregressive error does not grow monotonically — it fluctuates within a bounded envelope, for both
-the convex disk and the non-convex L-shape.
+Autoregressive error does not grow monotonically — it fluctuates within a bounded envelope over the
+full time horizon.
 
-| Case 3 — disk | Case 4 — L-shape |
+<div align="center">
+  <img src="readme_figures/bounded_error_evolution.gif" width="440" alt="Bounded error evolution">
+</div>
+
+### Elastodynamics on a non-convex subdomain
+
+Case 4 — wave propagation across the shared interface, with the L-shaped NO subdomain outlined. The
+FE and neural-operator subdomains are shown as one continuous field.
+
+| $u_x$ | $u_y$ |
 |---|---|
-| ![](readme_figures/case3_error_evolution.png) | ![](readme_figures/case4_L_error_evolution.png) |
-
-### Representative fields
-
-Each figure compares the FE–FE reference (top) against FE–NO coupling (bottom), over the global
-domain $\Omega_{\rm I}$ and the neural-operator subdomain $\Omega_{\rm II}$, with the absolute error
-at the final iteration or time step.
-
-**Case 1 — static displacement $u_x$.** FE–NO reaches the converged field in 10 iterations, FE–FE in 28:
-
-![Case 1 static ux](readme_figures/case1_static_ux.png)
-
-**Case 2 — hyperelastic stress:**
-
-![Case 2 hyperelastic stress](readme_figures/case2_hyper_stress.png)
-
-**Case 4 — elastodynamic wave propagation through a non-convex L-shaped NO subdomain:**
-
-![Case 4 dynamic L-shape ux](readme_figures/case4_dynamic_L_ux.png)
+| ![](readme_figures/case4_L_shape_ux.gif) | ![](readme_figures/case4_L_shape_uy.gif) |
 
 ---
 
