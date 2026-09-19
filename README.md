@@ -40,7 +40,7 @@ structured grids. This work removes both limitations.
 
 | | Overlapping (Wang et al., 2025) | **Non-overlapping (this work)** |
 |---|---|---|
-| Interface | overlap layer, $\Gamma_{\rm NO} \neq \Gamma_{\rm FE}$ | shared interface, $\Gamma_{\rm NO} = \Gamma_{\rm FE}$ |
+| Interface | overlap layer, Γ<sub>NO</sub> ≠ Γ<sub>FE</sub> | shared interface, Γ<sub>NO</sub> = Γ<sub>FE</sub> |
 | Exchange | Dirichlet–Dirichlet | **Neumann–Dirichlet** (traction NO → FE) |
 | NO subdomain | structured grid (CNN branch) | **arbitrary point cloud** (PointNet branch) |
 | Geometry | convex, grid-aligned | **non-convex and irregular** |
@@ -68,26 +68,26 @@ structured grids. This work removes both limitations.
 
 ### 1. Non-overlapping interface coupling
 
-$\Omega$ is partitioned into an FE subdomain $\Omega_{\rm FE}$ and a neural-operator subdomain
-$\Omega_{\rm NO}$ that share one interface, $\Gamma_{\rm NO} = \Gamma_{\rm FE}$. The Schwarz
+Ω is partitioned into an FE subdomain Ω<sub>FE</sub> and a neural-operator subdomain
+Ω<sub>NO</sub> that share one interface, Γ<sub>NO</sub> = Γ<sub>FE</sub>. The Schwarz
 alternating iteration passes **Dirichlet data (displacement)** from FE to NO, and **Neumann data
 (traction)** back from NO to FE.
 
 ### 2. Point-DeepONet
 
-**Branch 1** encodes the interface boundary conditions $u_n|_\Gamma$. **Branch 2** is a PointNet over
-the point cloud carrying the previous-step kinematics $(x_0, u_{n-1}, \dot{u}_{n-1})$ — shared MLPs
-followed by max pooling reduce $(B, N, C)$ to a global feature $(B, C)$. The **trunk** encodes query
-coordinates on $\Omega_{\rm NO}$. Their product gives the displacement operator
-$\mathcal{G}^{u}_{\theta}$, and automatic differentiation yields the strain operator
-$\mathcal{G}^{\epsilon}_{\theta}$ — not a separate network. Training minimises
-$\mathcal{L} = \mathcal{L}_{\rm res} + \mathcal{L}_{\rm bcs,u} + \mathcal{L}_{\rm bcs,\epsilon}$.
+**Branch 1** encodes the interface boundary conditions u<sub>n</sub>|<sub>Γ</sub>. **Branch 2** is a PointNet over
+the point cloud carrying the previous-step kinematics (x₀, u<sub>n−1</sub>, u̇<sub>n−1</sub>) — shared MLPs
+followed by max pooling reduce (B, N, C) to a global feature (B, C). The **trunk** encodes query
+coordinates on Ω<sub>NO</sub>. Their product gives the displacement operator
+<b>G</b><sup>u</sup><sub>θ</sub>, and automatic differentiation yields the strain operator
+<b>G</b><sup>ε</sup><sub>θ</sub> — not a separate network. Training minimises
+<b>L</b> = <b>L</b><sub>res</sub> + <b>L</b><sub>bcs,u</sub> + <b>L</b><sub>bcs,ε</sub>.
 
 ### 3. Time marching for dynamics
 
-Temporal coupling uses Newmark-$\beta$ integration on $\Omega_{\rm NO}$: given
-$(u_{n-1}, \dot{u}_{n-1})$, the Point-DeepONet predicts $u_n$ while the FE solver advances
-$\Omega_{\rm FE}$ with interface BCs, then $\dot{u}_n$ is updated. Static and quasi-static problems
+Temporal coupling uses Newmark-β integration on Ω<sub>NO</sub>: given
+(u<sub>n−1</sub>, u̇<sub>n−1</sub>), the Point-DeepONet predicts u<sub>n</sub> while the FE solver advances
+Ω<sub>FE</sub> with interface BCs, then u̇<sub>n</sub> is updated. Static and quasi-static problems
 need the spatial coupling only.
 
 ---
@@ -125,19 +125,26 @@ formulation needs **3** inner iterations where the overlapping one needs **9**:
 
 ### Bounded error over long time horizons
 
-Autoregressive error does not grow monotonically — it fluctuates within a bounded envelope over the
-full time horizon.
+Under the non-overlapping coupling the autoregressive error does not grow monotonically — it
+fluctuates within a bounded envelope over the full horizon. Under the earlier overlapping
+formulation it trends upward as the horizon lengthens.
 
-<div align="center">
-  <img src="readme_figures/bounded_error_evolution.gif" width="440" alt="Bounded error evolution">
-</div>
+| Overlapping (Wang et al., 2025) | **Non-overlapping (this work)** |
+|---|---|
+| ![](readme_figures/increasing_error_overlapping.gif) | ![](readme_figures/bounded_error_evolution.gif) |
+
+> **Note.** The two panels are not a like-for-like magnitude comparison: the overlapping case plots
+> *displacement* error (u<sub>x</sub>, u<sub>y</sub>, order 10<sup>−4</sup>) over time steps 90–130,
+> while the non-overlapping case plots *strain* error (ε<sub>xx</sub>, ε<sub>yy</sub>, order
+> 10<sup>−3</sup>) over steps 100–150. What they contrast is the **trend** — increasing versus
+> bounded — not the absolute error level.
 
 ### Elastodynamics on a non-convex subdomain
 
 Case 4 — wave propagation across the shared interface, with the L-shaped NO subdomain outlined. The
 FE and neural-operator subdomains are shown as one continuous field.
 
-| $u_x$ | $u_y$ |
+| u<sub>x</sub> | u<sub>y</sub> |
 |---|---|
 | ![](readme_figures/case4_L_shape_ux.gif) | ![](readme_figures/case4_L_shape_uy.gif) |
 
