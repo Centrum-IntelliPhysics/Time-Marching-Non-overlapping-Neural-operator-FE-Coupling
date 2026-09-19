@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 #region Save path       
-originalDir =os.getcwd()
+originalDir =os.path.dirname(os.path.abspath(__file__))
 print('current path:', originalDir)
 os.chdir(os.path.join(originalDir))
 

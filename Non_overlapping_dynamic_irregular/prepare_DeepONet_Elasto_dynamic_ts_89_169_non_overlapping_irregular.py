@@ -30,7 +30,6 @@ import pickle
 import scipy
 import jax.nn as jnn
 from jax.lax import conv_general_dilated as conv_lax
-from interpax import Interpolator2D
 import flax.linen as fnn
 from dynamic_utils import plot_disp, plot_relative_error, plot_loss4, createFolder
 
@@ -149,7 +148,7 @@ def init_SimplePointNet_params(p, key=random.PRNGKey(0)):
 
 
 
-def BranchNet_dil_PointNet(params, x):
+def BranchNet_dil_PointNet(params, x, m_s):
     """
     CNN-based branch network for the DeepONet.
 
@@ -212,6 +211,8 @@ class PI_DeepONet:
         self.E = ela_model['E']
         self.nu = ela_model['nu']
         self.rho = ela_model['rho']
+        self.m = ela_model['m']
+        self.m_s = ela_model['m_s']
         
         # Initialize
         branch_params = init_SimplePointNet_params(trunk_layers[-1],  key = random.PRNGKey(1234))
@@ -260,8 +261,8 @@ class PI_DeepONet:
     def operator_net_u(self, params, v, x, y):
         branch_params_v, branch_params_v_1, trunk_params_v = params
         h = np.hstack([x.reshape(-1,1), y.reshape(-1,1)])
-        B = self.branch_apply(branch_params_v, v[:,:-2*m])  
-        B_1 = self.branch_apply_1(branch_params_v_1, v[:,-2*m:])
+        B = self.branch_apply(branch_params_v, v[:,:-2*self.m], self.m_s)  
+        B_1 = self.branch_apply_1(branch_params_v_1, v[:,-2*self.m:])
         T = self.trunk_apply(trunk_params_v, h)
         # Compute the final output
         # Input shapes:
@@ -277,8 +278,8 @@ class PI_DeepONet:
     def operator_net_v(self, params, v, x, y):
         branch_params_v, branch_params_v_1, trunk_params_v = params
         h = np.hstack([x.reshape(-1,1), y.reshape(-1,1)])
-        B = self.branch_apply(branch_params_v, v[:,:-2*m])  
-        B_1 = self.branch_apply_1(branch_params_v_1, v[:,-2*m:])
+        B = self.branch_apply(branch_params_v, v[:,:-2*self.m], self.m_s)  
+        B_1 = self.branch_apply_1(branch_params_v_1, v[:,-2*self.m:])
         T = self.trunk_apply(trunk_params_v, h)
         # Compute the final output
         # Input shapes:
@@ -312,7 +313,7 @@ class PI_DeepONet:
                         , (x,), (np.ones_like(x),))[1]
         
         
-        u_old, v_old, vx_old, vy_old = u[:, 2*m_s:3*m_s], u[:, 3*m_s:4*m_s], u[:, 4*m_s:5*m_s]*100, u[:, 5*m_s:6*m_s]*100 # :ms for X1_in
+        u_old, v_old, vx_old, vy_old = u[:, 2*self.m_s:3*self.m_s], u[:, 3*self.m_s:4*self.m_s], u[:, 4*self.m_s:5*self.m_s]*100, u[:, 5*self.m_s:6*self.m_s]*100 # :ms for X1_in
 
         s_ax = -2/(dt*beta)**2*(u_old + vx_old*dt - self.operator_net_u(params_u, u, x, y)) #+ (1-beta)/(beta) * ax_old
         s_ay = -2/(dt*beta)**2*(v_old + vy_old*dt - self.operator_net_v(params_v, v, x, y)) #+ (1-beta)/(beta) * ay_old
@@ -547,76 +548,6 @@ def RBF(x1, x2, params): #radial basis function
 
     return output_scale**2 * np.exp(-0.5 * C**2)
 
-    
-
-# To generate (x,t) (u, y)
-def solve_ADR(key, Nx, Nt, P, length_scale):
-    """No need explicit resolution 
-    """
-    # Generate subkeys
-    xmin, xmax = 0, 10
-    key, subkey0, subkey1= random.split(key, 3)
-    subkeys0 = random.split(subkey0, 6)
-    subkeys1 = random.split(subkey1, 6)
-    # Generate a GP sample
-    N = 512
-    length_scale_u = length_scale[0]
-    length_scale_a = length_scale[1]
-    gp_params = (0.01, length_scale_u)
-    gp_params_a = (0.03, length_scale_a)
-
-    jitter = 1e-10
-    X = np.linspace(xmin, xmax, N)[:,None]
-    K = RBF(X, X, gp_params)
-    ### symetric (why np.linalg.cholesky() cannot work)
-    import numpy as npr
-    D, V = npr.linalg.eigh(K + jitter*np.eye(N))
-    D = np.maximum(D, 0)
-    L = V @ np.diag(np.sqrt(D))
-
-    K_a = RBF(X, X, gp_params_a)
-    ### symetric (why np.linalg.cholesky() cannot work)
-    D_a, V_a = npr.linalg.eigh(K_a + jitter*np.eye(N))
-    D_a = np.maximum(D_a, 0)
-    L_a = V_a @ np.diag(np.sqrt(D_a))
-    
-    def gp_sample(key, L):
-        gp_sample = np.dot(L, random.normal(key, (N,)))
-        return gp_sample
-    
-    gp_sample_u = vmap(gp_sample, (0,None))(subkeys0, L)
-    gp_sample_a = vmap(gp_sample, (0,None))(subkeys1, L_a)
-    # Create a callable interpolation function
-    f_fn_uv = lambda x: vmap(np.interp,(None, None, 0))(x, X.flatten(), gp_sample_u)
-    f_fn_a = lambda x: vmap(np.interp,(None, None, 0))(x, X.flatten(), gp_sample_a)
-    x_c = np.linspace(xmin, xmax, m)
-    u_c, v_c, u_c_p, v_c_p, u_c_n, v_c_n = f_fn_uv(x_c)
-    # positive and negative
-    # exchange the positive and negative profile (since ax_c_n ay_c_n have larger zero internal)
-    ax_c, ay_c, ax_c_p, ay_c_p, ax_c_n, ay_c_n = f_fn_a(x_c)
-    
-    u_c_p, v_c_p = np.maximum(ax_c_p, 0)/3, np.maximum(ay_c_p, 0)/3
-    u_c_n, v_c_n = np.minimum(ax_c_n, 0)/3, np.minimum(ay_c_n, 0)/3
-    ax_c_p, ay_c_p = np.maximum(u_c_p, 0)*3, np.maximum(v_c_p, 0)*3
-    ax_c_n, ay_c_n = np.minimum(u_c_n, 0)*3, np.minimum(v_c_n, 0)*3
-
-
-    # Create grid
-    num_points = m           # m is the sensor number  
-    x_list = []
-    y_list = []
-    for i in range(num_points):
-        angle = 2 * math.pi * i / num_points
-        x = center[0] + radius * math.cos(angle)
-        y = center[1] + radius * math.sin(angle)
-        x_list.append(x)
-        y_list.append(y)  
-
-    x = np.array(x_list).reshape(-1,1)
-    y = np.array(y_list).reshape(-1,1)
-    # Input sensor locations and measurements
-
-    return u_c, v_c, u_c_p, v_c_p, u_c_n, v_c_n
 
 
 # region training data 
@@ -713,14 +644,14 @@ def generate_training_data(key, N, P, Q):
 
 if __name__ == "__main__":
     # region save path 
-    originalDir = '/nfshdd/21040463r/FEM_DeepONet_non_overlapping_coupling/non_overlapping_figures/elasto_dynamic_irregular'
+    originalDir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(os.path.join(originalDir))
     foldername = 'prepare_DeepONet_disk_dynamic_square_disk_ts_89_169_200w_test5'
     createFolder(foldername)
     os.chdir(os.path.join(originalDir, './' + foldername + '/'))
     originalDir_real = os.path.join(originalDir, './' + foldername + '/')
 
-    os.chdir(os.path.join(originalDir, './' + 'dataload_from_full_square_disk_dataset_89_169_epsilon_CG2_dense' + '/'))
+    os.chdir(os.path.join(originalDir, './' + 'dataload_from_full_square_disk_dataset_89_169_epsilon_CG2_dense_test5' + '/'))
     # GRF length scale
     length_scale = [1, 0.4] #0.2 for symetric RBF big length_scale
     import numpy as npr 
@@ -840,6 +771,8 @@ if __name__ == "__main__":
     ela_model['E'] = 1000e-8 #1000 
     ela_model['nu'] = 0.3 
     ela_model['rho'] = 5e-8 #5
+    ela_model['m']= m
+    ela_model['m_s']=m_s
     #os.chdir('/nfsv4/21040463r/PINN/DeepONet_DR_no_ADR_to_ul_ur_vl_vr_test_rerun_0731_uxy_elastic')
     
     key = random.PRNGKey(0)

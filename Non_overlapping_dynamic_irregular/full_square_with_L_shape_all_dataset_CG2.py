@@ -29,7 +29,7 @@ import meshio
 
 start_time = time.time()
 #region Save path       
-originalDir = "/nfshdd/21040463r/FEM_DeepONet_non_overlapping_coupling/non_overlapping_figures/elasto_dynamic_irregular" #os.getcwd()
+originalDir = os.path.dirname(os.path.abspath(__file__))
 print('curent working directory:', originalDir)
 os.chdir(os.path.join(originalDir))
 

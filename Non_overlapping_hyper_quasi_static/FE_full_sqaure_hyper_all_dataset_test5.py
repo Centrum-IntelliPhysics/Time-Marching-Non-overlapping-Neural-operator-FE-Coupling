@@ -27,8 +27,6 @@ from matplotlib.ticker import ScalarFormatter
 from ufl import dx
 import time 
 from tqdm import trange 
-from utils import plot_bc
-#### utils 
 
 def createFolder(folder_name):
     try:
@@ -153,7 +151,7 @@ def plot_deformation_u(u, V2, foldername):
     p.screenshot(foldername + ".png")
 
 #region Save path       
-originalDir ='/nfshdd/21040463r/FEM_DeepONet_non_overlapping_coupling/non_overlapping_hyper_clean'
+originalDir =os.path.dirname(os.path.abspath(__file__))
 print('curent working directory:', originalDir)
 os.chdir(os.path.join(originalDir))
 
@@ -725,8 +723,7 @@ for i in trange(N):
             plot_disp(X, Y, U_,'displacement u i=' +str(i), rf'$u_{{\mathrm{{FE}}}}^{{{i}}}$')
             plot_disp(X, Y, V_,'displacement v i=' +str(i), rf'$v_{{\mathrm{{FE}}}}^{{{i}}}$')
             plot_disp(x_disk1, y_disk1,  strain_tot[index_disk1,0], 'strain_xx', rf'$\epsilon_{{xx}}$')
-            plot_bc(np.linspace(0,1,m), e_xx_c, 'strain_xx_bc')
-            plot_bc(np.linspace(0,1,m), s_xy_c, 'stress_xy_bc')
+
             end_time_once = time.time()
             print('time cost for one sample (s):', end_time_once - start_time_once)
 

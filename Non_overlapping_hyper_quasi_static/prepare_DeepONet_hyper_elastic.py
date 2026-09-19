@@ -800,7 +800,7 @@ def generate_test_data(key, N, P, Q):
 if __name__ == "__main__":
     jax.config.update("jax_enable_x64", False)
 
-    originalDir ='/nfshdd/21040463r/FEM_DeepONet_non_overlapping_coupling/non_overlapping_hyper_clean'
+    originalDir =os.path.dirname(os.path.abspath(__file__))
     os.chdir(os.path.join(originalDir))
 
     foldername = 'prepare_DeepONet_hyper_elastic_200w_uv_bcs_strain_one_traction_N_800_batch_100_uv_top_resort_real_sigma_test5'  

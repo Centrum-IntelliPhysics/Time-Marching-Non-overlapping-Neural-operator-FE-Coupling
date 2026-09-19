@@ -5,7 +5,7 @@ from scipy.interpolate import Rbf
 from Hyper_utils import plot_disp, plot_relative_error, createFolder
 
 #region Save path       
-originalDir = os.getcwd()
+originalDir = os.path.dirname(os.path.abspath(__file__))
 print('current working directory is ' + originalDir)
 os.chdir(os.path.join(originalDir))
 

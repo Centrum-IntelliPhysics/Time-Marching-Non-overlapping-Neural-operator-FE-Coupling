@@ -107,11 +107,6 @@ np.savetxt('index_BC.txt', index)
 
 X_BC_in_r, Y_BC_in_r = X_BC_in[index], Y_BC_in[index]
 
-print('index length:', len(index))
-print(X_BC_in_r[0:10], X_BC[0:10])
-
-
-
 
 def epsilon(u):
     return ufl.sym(ufl.grad(u))  # Equivalent to 0.5*(ufl.nabla_grad(u) + ufl.nabla_grad(u).T)
@@ -470,11 +465,15 @@ from prepare_DeepONet_Elasto_dynamic_ts_89_169_non_overlapping_irregular import 
 
 
 m = X_BC.shape[0]
+m_s = X1.shape[0]
 d = 2 # dimension of the input data
 ela_model = dict()
 ela_model['E'] = 1000e-8 #1000 
 ela_model['nu'] = 0.3 
 ela_model['rho'] = 5e-8 #5
+ela_model['m']= m
+ela_model['m_s']=m_s
+
 
 branch_layers_1 =  [2*m, 100, 100, 100, 100, 800]
 trunk_layers =  [d, 100, 100, 100, 100, 800]
@@ -553,7 +552,7 @@ for tag in tags_list:
     coor_out_list.append(coor_out_val)
     length_list.append(bc_x.shape[0])
     facets_list.append(facets_bc)
-    plot_disp(bc_x, bc_y, bc_x*10, 'BC_tag_'+ str(tag), 'BC_tag_'+ str(tag))
+    #plot_disp(bc_x, bc_y, bc_x*10, 'BC_tag_'+ str(tag), 'BC_tag_'+ str(tag))
 
 coor_out_test = np.hstack(coor_out_list)
 
@@ -630,11 +629,11 @@ source_points = np.column_stack((X_BC1, Y_BC1))
 tree = KDTree(source_points)
 distances, index_xy_c = tree.query(target_points)
 
-print('three BC=',X_BC1[index_xy_c][0:10], X[coor_r_out][0:10], x_c_real[0:10])
+#print('three BC=',X_BC1[index_xy_c][0:10], X[coor_r_out][0:10], x_c_real[0:10])
 X_BC, Y_BC = X[coor_r_out], Y[coor_r_out]
 index_out2in = np.array([np.where((np.isclose(x0, X[coor_r_out])) & (np.isclose(y0, Y[coor_r_out])))[0] 
                                 for x0, y0 in zip(X_BC1, Y_BC1)]).flatten()
-print(X_BC[index_out2in][0:10], X_BC1[0:10])
+#print(X_BC[index_out2in][0:10], X_BC1[0:10])
 
 
 target_points = np.column_stack((x_c_real, y_c_real))
@@ -643,7 +642,7 @@ source_points = np.column_stack((X_BC1, Y_BC1))
 # build KDTree for fast nearest neighbor search
 tree = KDTree(source_points)
 distances1, index_xy_c_NO = tree.query(target_points)
-print('three BC1=',X_BC1[index_xy_c_NO][0:10], x_c_real[0:10])
+#print('three BC1=',X_BC1[index_xy_c_NO][0:10], x_c_real[0:10])
 
 
 for ts in trange(170):
