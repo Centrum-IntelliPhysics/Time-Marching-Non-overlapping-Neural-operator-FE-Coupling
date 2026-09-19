@@ -37,7 +37,7 @@ from utils import plot_disp, plot_relative_error, createFolder
 
 
 #region Save path       
-originalDir = '/nfshdd/21040463r/FEM_DeepONet_non_overlapping_coupling/non_overlapping_static_clean'#os.getcwd()
+originalDir = os.path.dirname(os.path.abspath(__file__))
 print('current working directory is ' + originalDir)
 os.chdir(os.path.join(originalDir))
 

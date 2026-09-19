@@ -602,7 +602,7 @@ center = (0.0, 0.5, 0.0)  # Center of the circle
 radius = 0.3             # Radius of the circle
 # region main 
 if __name__ == "__main__":
-    originalDir ='/nfshdd/21040463r/FEM_DeepONet_non_overlapping_coupling/non_overlapping_static_clean'
+    originalDir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(os.path.join(originalDir))
 
     foldername = 'prepare_DeepONet_static_linear_elastic_test5' 
