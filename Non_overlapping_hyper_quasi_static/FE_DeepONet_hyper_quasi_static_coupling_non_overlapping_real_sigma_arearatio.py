@@ -50,7 +50,7 @@ originalDir =os.path.dirname(os.path.abspath(__file__))
 print('curent working directory:', originalDir)
 os.chdir(os.path.join(originalDir))
 
-foldername = 'FE_DeepONet_hyper_elasticity_quasi_static_coupling_results_1e_3_DeepONet_arearatio'  
+foldername = 'FE_DeepONet_hyper_elasticity_quasi_static_coupling_results_1e_3_DeepONet_arearatio_re'  
 createFolder(foldername )
 os.chdir(os.path.join(originalDir, './'+ foldername + '/')) 
 
@@ -354,7 +354,7 @@ branch_layers =  [2*m, 100, 100, 100, 100, 800]
 trunk_layers =  [d, 100, 100, 100, 100, 800]
 model = PI_DeepONet(branch_layers, trunk_layers, **ela_model)
 # 1211 is for disk case and it is correct
-os.chdir(os.path.join(originalDir, './' + 'prepare_DeepONet_hyper_elastic_100w_uv_bcs_strain_one_traction_N_800_batch_100_uv_top_resort_real_sigma' + '/'))
+os.chdir(os.path.join(originalDir, './' + 'prepare_DeepONet_hyper_elastic_200w_uv_bcs_strain_one_traction_N_800_batch_100_uv_top_resort_real_sigma_test5' + '/'))
 print(os.getcwd())
 with open('DeepONet_DR.pkl', 'rb') as f:
     params = pickle.load(f)
