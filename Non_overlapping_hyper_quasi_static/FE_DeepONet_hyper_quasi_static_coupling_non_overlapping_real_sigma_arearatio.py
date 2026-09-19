@@ -10,11 +10,12 @@ exchanging the displacement at the overlapping boundary.
 Two tractions (displacements) are applied on the top and right edege
 ======================================================================
 '''
+import jax
+jax.devices() 
 from dolfinx import log, default_scalar_type
 from dolfinx.fem.petsc import NonlinearProblem
 from dolfinx.nls.petsc import NewtonSolver
 import os 
-import jax
 import jax.numpy as jnp
 from jax import grad, vmap
 import dolfinx
