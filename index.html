@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FE–NO Coupling Papers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one narrow reading column, phone-first (opened from a QR code); a two-subdomain motif heads the page */
+:root {
+  --bg: #F3F5F7;
+  --surface: #FFFFFF;
+  --fg: #16202A;
+  --muted: #5B6773;
+  --line: #D8DEE4;
+  --fe: #1E5AA0;      /* finite element subdomain */
+  --no: #C26A12;      /* neural operator subdomain */
+  --fe-soft: #E3ECF7;
+  --no-soft: #F8EBDD;
+  --display: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0F151B; --surface: #172029; --fg: #E6EBF0; --muted: #98A4B0; --line: #2A3540;
+    --fe: #7FB0EA; --no: #F0A65A; --fe-soft: #1B2B3D; --no-soft: #33261A;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0F151B; --surface: #172029; --fg: #E6EBF0; --muted: #98A4B0; --line: #2A3540;
+  --fe: #7FB0EA; --no: #F0A65A; --fe-soft: #1B2B3D; --no-soft: #33261A;
+  color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--body); font-size: 16px; line-height: 1.55;
+}
+.wrap {
+  max-width: 640px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 48px;
+  display: flex; flex-direction: column; gap: 28px;
+}
+header { display: flex; flex-direction: column; gap: 14px; }
+.motif { width: 100%; max-width: 100%; height: auto; display: block; }
+.eyebrow {
+  font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); margin: 0;
+}
+h1 {
+  font-family: var(--display); font-weight: 600; font-size: clamp(26px, 6vw, 34px);
+  line-height: 1.15; margin: 0; text-wrap: balance;
+}
+.lede { margin: 0; color: var(--muted); max-width: 60ch; }
+.lede strong { color: var(--fg); font-weight: 500; }
+.list { display: flex; flex-direction: column; gap: 14px; }
+.item {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0;
+}
+.tag {
+  align-self: flex-start; font-family: var(--mono); font-size: 11.5px; letter-spacing: .06em;
+  text-transform: uppercase; padding: 3px 8px; border-radius: 4px;
+}
+.tag.fe { background: var(--fe-soft); color: var(--fe); }
+.tag.no { background: var(--no-soft); color: var(--no); }
+.tag.code { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.item h2 {
+  font-family: var(--display); font-weight: 600; font-size: 19px; line-height: 1.3;
+  margin: 0; text-wrap: balance;
+}
+.meta { margin: 0; color: var(--muted); font-size: 14.5px; }
+.meta em { font-style: italic; }
+.doi { font-family: var(--mono); font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+.btn {
+  font-family: var(--body); font-size: 14.5px; font-weight: 500;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 14px; border-radius: 7px; text-decoration: none; cursor: pointer;
+  border: 1px solid transparent;
+}
+.btn.primary { background: var(--fg); color: var(--bg); }
+.btn.ghost { background: transparent; color: var(--fg); border-color: var(--line); }
+.btn:hover { opacity: .88; }
+.btn:focus-visible { outline: 2px solid var(--fe); outline-offset: 2px; }
+footer { font-size: 13.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
+footer p { margin: 0; }
+@media (prefers-reduced-motion: no-preference) { .btn { transition: opacity .15s; } }
+</style>
+<style>body{margin:0}*{box-sizing:border-box}</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header>
+    <svg class="motif" viewBox="0 0 600 120" role="img" aria-label="Two non-overlapping subdomains: a finite element mesh on the left and a neural operator point cloud on the right, sharing one interface">
+      <defs>
+        <pattern id="mesh" width="20" height="20" patternUnits="userSpaceOnUse">
+          <path d="M0 0 L20 0 M0 0 L0 20 M0 20 L20 0" stroke="var(--fe)" stroke-width="1" fill="none" opacity=".55"/>
+        </pattern>
+      </defs>
+      <rect x="0" y="0" width="300" height="120" fill="var(--fe-soft)"/>
+      <rect x="0" y="0" width="300" height="120" fill="url(#mesh)"/>
+      <rect x="300" y="0" width="300" height="120" fill="var(--no-soft)"/>
+      <g fill="var(--no)" opacity=".7" id="pts"></g>
+      <line x1="300" y1="0" x2="300" y2="120" stroke="var(--fg)" stroke-width="2.5"/>
+      <text x="14" y="108" font-family="IBM Plex Mono, monospace" font-size="13" fill="var(--fe)">Ω_FE</text>
+      <text x="586" y="108" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="13" fill="var(--no)">Ω_NO</text>
+      <text x="306" y="18" font-family="IBM Plex Mono, monospace" font-size="12" fill="var(--fg)">Γ</text>
+    </svg>
+    <p class="eyebrow">Hybrid FE–NO coupling · CMAME</p>
+    <h1>Finite element – neural operator coupling for solid mechanics</h1>
+    <p class="lede"><strong>Wei Wang</strong>, Johns Hopkins University. Two papers and the open-source code from the Centrum-IntelliPhysics group.</p>
+  </header>
+
+  <section class="list" aria-label="Papers and code">
+    <article class="item">
+      <span class="tag fe">Paper · 2025</span>
+      <h2>Time-marching neural operator–FE coupling: AI-accelerated physics modeling</h2>
+      <p class="meta">Wang, Hakimzadeh, Ruan &amp; Goswami · <em>Computer Methods in Applied Mechanics and Engineering</em> 446, 118319</p>
+      <span class="doi">doi:10.1016/j.cma.2025.118319</span>
+      <div class="actions">
+        <a class="btn primary" href="https://www.sciencedirect.com/science/article/pii/S0045782525005912" target="_blank" rel="noopener">Read paper ↗</a>
+        <button class="btn ghost" id="cite1" type="button" data-cite="W. Wang, Hakimzadeh, H. Ruan, S. Goswami. Time-marching neural operator–FE coupling: AI-accelerated physics modeling. Computer Methods in Applied Mechanics and Engineering 446 (2025) 118319. https://doi.org/10.1016/j.cma.2025.118319">Copy citation</button>
+      </div>
+    </article>
+
+    <article class="item">
+      <span class="tag no">Paper · 2026</span>
+      <h2>A non-overlapping Schwarz hybrid finite element–neural operator framework for solid mechanics on irregular domains</h2>
+      <p class="meta">Wang, Gupta, Ruan &amp; Goswami · <em>Computer Methods in Applied Mechanics and Engineering</em> 463, 119365</p>
+      <span class="doi">doi:10.1016/j.cma.2026.119365</span>
+      <div class="actions">
+        <a class="btn primary" href="https://www.sciencedirect.com/science/article/pii/S0045782526006389" target="_blank" rel="noopener">Read paper ↗</a>
+        <button class="btn ghost" id="cite2" type="button" data-cite="W. Wang, A. Gupta, H. Ruan, S. Goswami. A non-overlapping Schwarz hybrid finite element–neural operator framework for solid mechanics on irregular domains. Computer Methods in Applied Mechanics and Engineering 463, 119365. https://doi.org/10.1016/j.cma.2026.119365">Copy citation</button>
+      </div>
+    </article>
+
+    <article class="item">
+      <span class="tag code">Code · GitHub</span>
+      <h2>Time-Marching Non-overlapping Neural Operator–FE Coupling</h2>
+      <p class="meta">FE solver coupled with a Point-DeepONet through non-overlapping Schwarz iterations. Static, hyperelastic and elastodynamic examples.</p>
+      <span class="doi">Centrum-IntelliPhysics/Time-Marching-Non-overlapping-Neural-operator-FE-Coupling</span>
+      <div class="actions">
+        <a class="btn primary" href="https://github.com/Centrum-IntelliPhysics/Time-Marching-Non-overlapping-Neural-operator-FE-Coupling" target="_blank" rel="noopener">View repository ↗</a>
+      </div>
+    </article>
+  </section>
+
+  <footer>
+    <p>Centrum-IntelliPhysics · Department of Civil and Systems Engineering, Johns Hopkins University</p>
+  </footer>
+</div>
+
+<script>
+// scatter a fixed pseudo-random point cloud in the NO subdomain
+(function () {
+  var g = document.getElementById('pts'); if (!g) return;
+  var s = 7, ns = 'http://www.w3.org/2000/svg';
+  function r() { s = (s * 16807) % 2147483647; return s / 2147483647; }
+  for (var i = 0; i < 90; i++) {
+    var c = document.createElementNS(ns, 'circle');
+    c.setAttribute('cx', (308 + r() * 286).toFixed(1));
+    c.setAttribute('cy', (6 + r() * 108).toFixed(1));
+    c.setAttribute('r', '2.2');
+    g.appendChild(c);
+  }
+})();
+document.querySelectorAll('[data-cite]').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var text = b.getAttribute('data-cite');
+    var done = function () { var t = b.textContent; b.textContent = 'Copied'; setTimeout(function () { b.textContent = t; }, 1500); };
+    var fallback = function () {
+      var ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); done(); } catch (e) {} ta.remove();
+    };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
+      else fallback();
+    } catch (e) { fallback(); }
+  });
+});
+</script>
+
+</body>
+</html>
